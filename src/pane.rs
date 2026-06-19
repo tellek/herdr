@@ -815,6 +815,8 @@ pub struct PaneRuntime {
     current_size: Cell<(u16, u16, u32, u32)>,
     child_pid: Arc<AtomicU32>,
     reported_cwd: Arc<Mutex<Option<std::path::PathBuf>>>,
+    /// Cached PID of the foreground process (e.g. Claude subprocess). 0 = shell is foreground.
+    foreground_pid: Arc<AtomicU32>,
     child_wait_completed: Option<Arc<AtomicBool>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     detection_content_seq: Arc<AtomicU64>,
@@ -1641,6 +1643,7 @@ impl PaneRuntime {
             current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
             child_pid,
             reported_cwd,
+            foreground_pid: Arc::new(AtomicU32::new(0)),
             child_wait_completed: None,
             kitty_keyboard_flags,
             detection_content_seq,
@@ -1778,6 +1781,7 @@ impl PaneRuntime {
         };
 
         // --- Detection task ---
+        let foreground_pid = Arc::new(AtomicU32::new(0));
         let (detect_handle, detect_reset_notify, pending_release) = {
             use crate::detect;
             use std::time::{Duration, Instant};
@@ -1797,6 +1801,7 @@ impl PaneRuntime {
             let detect_reset = detect_reset_notify.clone();
             let pending_release = Arc::new(Mutex::new(None));
             let pending_release_for_task = pending_release.clone();
+            let foreground_pid_for_task = foreground_pid.clone();
 
             let handle = tokio::spawn(async move {
                 let mut agent_presence =
@@ -1945,17 +1950,20 @@ impl PaneRuntime {
                             };
                             if new_agent.is_some() {
                                 last_foreground_pgid = process_group_id;
+                                foreground_pid_for_task.store(process_group_id.unwrap_or(0), Ordering::Release);
                                 acquisition_started_at = None;
                                 last_content_change_at = None;
                                 pending_restore_probe = false;
                             } else if agent_presence.current_agent().is_none() {
                                 last_foreground_pgid = process_group_id.or(foreground_pgid);
+                                foreground_pid_for_task.store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
                                 if had_process_probe && process_group_changed {
                                     acquisition_started_at = Some(now);
                                 }
                                 pending_restore_probe = false;
                             } else {
                                 last_foreground_pgid = process_group_id.or(foreground_pgid);
+                                foreground_pid_for_task.store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
                             }
                             if changed {
                                 agent = agent_presence.current_agent();
@@ -2149,6 +2157,7 @@ impl PaneRuntime {
             current_size: Cell::new((rows, cols, 0, 0)),
             child_pid,
             reported_cwd,
+            foreground_pid,
             child_wait_completed: Some(child_wait_completed),
             kitty_keyboard_flags,
             detection_content_seq,
@@ -2453,6 +2462,22 @@ impl PaneRuntime {
 
     /// Get the current working directory of the child shell process.
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
+        let child_pid = self.child_pid.load(Ordering::Relaxed);
+
+        // On Windows: when an agent subprocess (e.g. Claude) is the foreground process,
+        // read its CWD directly so the label reflects where Claude is actually working.
+        #[cfg(windows)]
+        {
+            let fg_pid = self.foreground_pid.load(Ordering::Acquire);
+            if fg_pid > 0 && fg_pid != child_pid {
+                if let Some(cwd) = crate::platform::process_cwd(fg_pid)
+                    .and_then(|p| usable_reported_cwd(p))
+                {
+                    return Some(cwd);
+                }
+            }
+        }
+
         if let Some(cwd) = self
             .reported_cwd
             .lock()
@@ -2462,8 +2487,7 @@ impl PaneRuntime {
         {
             return Some(cwd);
         }
-        let pid = self.child_pid.load(Ordering::Relaxed);
-        crate::platform::process_cwd(pid)
+        crate::platform::process_cwd(child_pid)
     }
 
     pub fn child_pid(&self) -> Option<u32> {
@@ -2556,6 +2580,7 @@ impl PaneRuntime {
                 current_size: Cell::new((rows, cols, 0, 0)),
                 child_pid: Arc::new(AtomicU32::new(0)),
                 reported_cwd: Arc::new(Mutex::new(None)),
+                foreground_pid: Arc::new(AtomicU32::new(0)),
                 child_wait_completed: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 detection_content_seq: Arc::new(AtomicU64::new(0)),
@@ -2611,6 +2636,41 @@ mod tests {
     #[test]
     fn encode_paste_no_newlines_unchanged() {
         assert_eq!(encode_paste_payload("hello world", false), "hello world");
+    }
+
+    #[test]
+    fn cwd_returns_reported_cwd_when_foreground_pid_is_zero() {
+        let expected = std::env::current_dir().unwrap();
+        let reported_cwd = Arc::new(Mutex::new(Some(expected.clone())));
+        let child_pid = Arc::new(AtomicU32::new(9999));
+        let foreground_pid = Arc::new(AtomicU32::new(0));
+        let result = {
+            let reported = reported_cwd.lock().unwrap().clone().and_then(usable_reported_cwd);
+            let fg = foreground_pid.load(Ordering::Relaxed);
+            let cp = child_pid.load(Ordering::Relaxed);
+            if fg > 0 && fg != cp { None } else { reported }
+        };
+        assert_eq!(result, Some(expected));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn cwd_prefers_foreground_pid_over_reported_cwd_on_windows() {
+        let own_cwd = std::env::current_dir().unwrap();
+        let stale_cwd = std::path::PathBuf::from("C:\\Windows");
+        let reported_cwd = Arc::new(Mutex::new(Some(stale_cwd)));
+        let own_pid = std::process::id();
+        let child_pid = Arc::new(AtomicU32::new(9999));
+        let foreground_pid = Arc::new(AtomicU32::new(own_pid));
+        let fg = foreground_pid.load(Ordering::Acquire);
+        let cp = child_pid.load(Ordering::Relaxed);
+        // Simulate the Windows foreground-pid CWD lookup
+        let result = if fg > 0 && fg != cp {
+            crate::platform::process_cwd(fg).and_then(usable_reported_cwd)
+        } else {
+            reported_cwd.lock().unwrap().clone().and_then(usable_reported_cwd)
+        };
+        assert_eq!(result, Some(own_cwd));
     }
 
     #[test]
@@ -2969,6 +3029,7 @@ mod tests {
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
             reported_cwd: Arc::new(Mutex::new(None)),
+            foreground_pid: Arc::new(AtomicU32::new(0)),
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),
@@ -3000,6 +3061,7 @@ mod tests {
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
             reported_cwd: Arc::new(Mutex::new(None)),
+            foreground_pid: Arc::new(AtomicU32::new(0)),
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),

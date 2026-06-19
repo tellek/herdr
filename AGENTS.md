@@ -66,6 +66,10 @@ Agent detection changes should use the manifest hot-reload loop. Can drives the 
 
 Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
 
+## Dynamic agent label CWD (Windows)
+
+`PaneRuntime` holds a `foreground_pid: Arc<AtomicU32>` (default 0) shared with the detection task. The detection task sets it to the agent subprocess PID when it identifies a foreground agent process, or 0/shell-PID when the shell is foreground. On Windows, `PaneRuntime::cwd()` checks `foreground_pid` first — if it differs from `child_pid`, it calls `platform::process_cwd(foreground_pid)` to return the agent's actual CWD, making the sidebar agent label reflect where Claude is working rather than where the shell started.
+
 ## Statusline panel
 
 A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the `statusline-command.ps1` Claude hook — and falls back to the CWD folder name when no hook data is present. The panel changes automatically when focus switches to a different pane/session.
