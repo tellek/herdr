@@ -27,7 +27,7 @@ const CLAUDE_HOOK_ASSET: &str = if cfg!(windows) {
 } else {
     include_str!("assets/claude/herdr-agent-state.sh")
 };
-const CLAUDE_INTEGRATION_VERSION: u32 = 6;
+const CLAUDE_INTEGRATION_VERSION: u32 = 7;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CODEX_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "herdr-agent-state.ps1"
@@ -1501,6 +1501,27 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
         10,
         Some("*"),
     )?;
+    ensure_command_hook(
+        hooks,
+        "PreToolUse",
+        hook_command(&hook_path, Some("statusline")),
+        5,
+        Some("*"),
+    )?;
+    ensure_command_hook(
+        hooks,
+        "PostToolUse",
+        hook_command(&hook_path, Some("statusline")),
+        5,
+        Some("*"),
+    )?;
+    ensure_command_hook(
+        hooks,
+        "Stop",
+        hook_command(&hook_path, Some("statusline")),
+        5,
+        Some("*"),
+    )?;
     remove_legacy_bash_hook_file(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
@@ -1940,6 +1961,12 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
             updated_settings |= remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
             updated_settings |=
                 remove_hook_commands(hooks, "SessionEnd", &hook_path, Some("release"))?;
+            updated_settings |=
+                remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("statusline"))?;
+            updated_settings |=
+                remove_hook_commands(hooks, "PostToolUse", &hook_path, Some("statusline"))?;
+            updated_settings |=
+                remove_hook_commands(hooks, "Stop", &hook_path, Some("statusline"))?;
         }
 
         if updated_settings {
@@ -4271,12 +4298,24 @@ mod tests {
             .unwrap()
             .contains(" session"));
         assert!(settings["hooks"].get("UserPromptSubmit").is_none());
-        assert!(settings["hooks"].get("PreToolUse").is_none());
+        assert!(settings["hooks"]["PreToolUse"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("PermissionRequest").is_none());
-        assert!(settings["hooks"].get("PostToolUse").is_none());
+        assert!(settings["hooks"]["PostToolUse"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("PostToolUseFailure").is_none());
         assert!(settings["hooks"].get("SubagentStop").is_none());
-        assert!(settings["hooks"].get("Stop").is_none());
+        assert!(settings["hooks"]["Stop"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("SessionEnd").is_none());
 
         std::env::remove_var("HOME");
@@ -4323,12 +4362,24 @@ mod tests {
             1
         );
         assert!(settings["hooks"].get("UserPromptSubmit").is_none());
-        assert!(settings["hooks"].get("PreToolUse").is_none());
+        assert!(settings["hooks"]["PreToolUse"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("PermissionRequest").is_none());
-        assert!(settings["hooks"].get("PostToolUse").is_none());
+        assert!(settings["hooks"]["PostToolUse"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("PostToolUseFailure").is_none());
         assert!(settings["hooks"].get("SubagentStop").is_none());
-        assert!(settings["hooks"].get("Stop").is_none());
+        assert!(settings["hooks"]["Stop"][0]["matcher"] == "*");
+        assert!(settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
         assert!(settings["hooks"].get("SessionEnd").is_none());
 
         std::env::remove_var("HOME");
@@ -4405,8 +4456,15 @@ mod tests {
             "echo keep-session-end"
         );
         assert!(settings["hooks"].get("UserPromptSubmit").is_none());
-        assert!(settings["hooks"].get("PreToolUse").is_none());
-        assert!(settings["hooks"].get("Stop").is_none());
+        // PreToolUse, PostToolUse, Stop are now added by install_claude for statusline
+        assert!(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
+        assert!(settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" statusline"));
 
         std::env::remove_var("HOME");
         let _ = fs::remove_dir_all(base);
@@ -4435,7 +4493,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(1));
-        assert_eq!(claude.expected_version, 6);
+        assert_eq!(claude.expected_version, 7);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");
@@ -4465,7 +4523,7 @@ mod tests {
 
         assert_eq!(claude.path, hook_path);
         assert_eq!(claude.installed_version, Some(2));
-        assert_eq!(claude.expected_version, 6);
+        assert_eq!(claude.expected_version, 7);
         assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
         std::env::remove_var("HOME");

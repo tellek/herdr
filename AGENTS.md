@@ -72,7 +72,7 @@ Do not add large agent-specific full-screen fixture suites for routine manifest 
 
 ## Statusline panel
 
-A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the `statusline-command.ps1` Claude hook — and falls back to the CWD folder name when no hook data is present. The panel changes automatically when focus switches to a different pane/session.
+A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the Claude integration hook on `PreToolUse`, `PostToolUse`, and `Stop` events via `herdr pane report-metadata --custom-status` — and falls back to the CWD folder name when no hook data is present. The hook computes `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder` from the Claude hook payload. Integration version is 7 (`CLAUDE_INTEGRATION_VERSION`). The panel changes automatically when focus switches to a different pane/session.
 
 ## Vendored libghostty-vt
 
