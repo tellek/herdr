@@ -18,5 +18,14 @@ todos:
     title: It appears that the agent name label in the left pane is not updating like it should be. It always shows the working foldername no matter where you went in the terminal. So since it starts in C:\Users\chris all agents are named chris. It should dynamically change to whatever folder the terminal is running in. If in a golder within a git project, then it should be that git repo, and if /rename is called in claude then a hook in global settings.json should be used to capture the claude session id and use that and the working folder to determine which .claude\projects file to look in and pull the session name out to use that as the agents label.
     done: true
   - id: 7
-    title: The new statusline panel at the bottom is only showing the working folder for the terminal. This is good, but its supposed to be showing all the information that is in the current statusline which would be: [{model}] effort:{effort} | [{context progress bar}] {context percent}% | 💰 ${session cost} | 📁 {session work folder}
+    title: The new statusline panel at the bottom of herdr is only showing the working folder for the terminal. This is good, but its supposed to be showing more information for the highlighted terminal and the claud session within. What should be visible is: [{model}] effort:{effort} | [{context progress bar}] {context percent}% | 💰 ${session cost} | 📁 {session work folder}
     done: true
+  - id: 8
+    title: When you close herdr with open claud sessions it remembers them and automatically resumes them by running claude --resume {sessionId} ... The problem is that it doesnt appear to always be working and I would be that it's stuck to the original folder path the terminal had when launching, so when attempting to resume the folder and the session do not line up. Here is an example:
+      PS C:\git\herdr\logs> claude --resume 3a3a7587-9693-4ae9-9baf-41ca880a2daa
+      No conversation found with session ID: 3a3a7587-9693-4ae9-9baf-41ca880a2daa
+      PS C:\git\herdr\logs>
+    done: true
+  - id: 9
+    title: When doing /rename in a cluade session the agent name label in the left pane is not changing to the session name. It should be able to determine the session name based on the contents of the projects folder IE: .claude/projects/C--GIT/{sessionId}.jsonl ... Search online to get the format of that file so you know what to capture. Since we have the folder and the session id, it should be as simple as polling that file regularly to see if there's a name set.
+    done: false

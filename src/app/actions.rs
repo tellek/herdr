@@ -2442,6 +2442,7 @@ impl AppState {
                 seq,
                 session_ref,
                 session_start_source,
+                project_cwd,
             } => {
                 // Try to discover the Claude session title from the JSONL file.
                 let session_title = if agent_label == "claude" {
@@ -2455,8 +2456,7 @@ impl AppState {
                         .map(|t| t.cwd.clone());
                     match (cwd, session_ref.as_ref()) {
                         (Some(cwd), Some(sr))
-                            if sr.kind
-                                == crate::agent_resume::AgentSessionRefKind::Id =>
+                            if sr.kind == crate::agent_resume::AgentSessionRefKind::Id =>
                         {
                             read_claude_session_ai_title(&cwd, &sr.value)
                         }
@@ -2467,13 +2467,19 @@ impl AppState {
                 };
                 let updates: Vec<_> = self
                     .update_terminal_state(pane_id, |terminal| {
-                        terminal.set_agent_session_ref_for_session_start(
+                        let mutation = terminal.set_agent_session_ref_for_session_start(
                             source,
                             agent_label,
                             session_ref,
                             seq,
                             session_start_source,
-                        )
+                        );
+                        // Store the project CWD so resume always runs from the
+                        // directory where the agent was launched (its project root).
+                        if let Some(cwd) = project_cwd {
+                            terminal.agent_session_project_cwd = Some(cwd);
+                        }
+                        mutation
                     })
                     .into_iter()
                     .collect();

@@ -59,7 +59,13 @@ Agent entries in the left sidebar use a two-row display: primary label (row 1, b
 
 A 1-row statusline bar sits at the bottom of the terminal pane area (right of the sidebar, spanning to the right edge). It is desktop-only (not rendered in mobile layout). `compute_view_internal` carves it out of `main_terminal_area` before passing `terminal_area` to the pane renderer; `ViewState::statusline_rect` stores its coordinates.
 
-`render_statusline` in `src/ui/statusline.rs` looks up the focused pane's `TerminalState` (via `app.active → ws.active_tab → tab.layout.focused() → tab.terminal_id() → app.terminals`) and renders `terminal.effective_custom_status()` when present. When `custom_status` is absent it falls back to the CWD folder name. The `custom_status` string is populated by the Claude integration hook (`herdr-agent-state.ps1`/`.sh`) on `PreToolUse`, `PostToolUse`, and `Stop` events with the `statusline` action. The hook computes: `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder` from the Claude hook payload (model, context window, rate limits, CWD). The integration is installed via `herdr integrate install claude` and is at `CLAUDE_INTEGRATION_VERSION=7`.
+`render_statusline` in `src/ui/statusline.rs` looks up the focused pane's `TerminalState` (via `app.active → ws.active_tab → tab.layout.focused() → tab.terminal_id() → app.terminals`) and renders `terminal.effective_custom_status()` when present. When `custom_status` is absent it falls back to the CWD folder name. The `custom_status` string is populated by the Claude integration hook (`herdr-agent-state.ps1`/`.sh`) on `PreToolUse`, `PostToolUse`, and `Stop` events with the `statusline` action. The hook computes: `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder` from the Claude hook payload (model, context window, rate limits, CWD). The integration is installed via `herdr integrate install claude` and is at `CLAUDE_INTEGRATION_VERSION=8`.
+
+## Claude session resume CWD
+
+When herdr auto-resumes a Claude session it runs `claude --resume <id>` inside a shell spawned at the pane's saved CWD. If that CWD is a subdirectory Claude navigated into, Claude may not find the session (sessions are keyed to the project root where `claude` was originally launched).
+
+`TerminalState.agent_session_project_cwd: Option<PathBuf>` stores the project root CWD, captured at `SessionStart` from the hook payload (`workspace.current_dir` or `cwd`). The hook sends it via `herdr pane report-agent-session --project-cwd <dir>` (PS1) or as `project_cwd` JSON param (SH). `PaneAgentSessionSnapshot` persists it. On restore, `persist/restore.rs` uses this path (if present and exists on disk) as the shell's spawn directory for the resume terminal, falling back to the snapshot CWD otherwise.
 
 ## Paste handling
 

@@ -72,7 +72,13 @@ Do not add large agent-specific full-screen fixture suites for routine manifest 
 
 ## Statusline panel
 
-A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the Claude integration hook on `PreToolUse`, `PostToolUse`, and `Stop` events via `herdr pane report-metadata --custom-status` — and falls back to the CWD folder name when no hook data is present. The hook computes `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder` from the Claude hook payload. Integration version is 7 (`CLAUDE_INTEGRATION_VERSION`). The panel changes automatically when focus switches to a different pane/session.
+A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the Claude integration hook on `PreToolUse`, `PostToolUse`, and `Stop` events via `herdr pane report-metadata --custom-status` — and falls back to the CWD folder name when no hook data is present. The hook computes `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder` from the Claude hook payload. Integration version is 8 (`CLAUDE_INTEGRATION_VERSION`). The panel changes automatically when focus switches to a different pane/session.
+
+## Claude session resume CWD
+
+When herdr resumes a Claude session after restart it runs `claude --resume <session-id>` in a shell. The shell spawns in the CWD stored in the pane snapshot. If this CWD is a subdirectory Claude navigated into during the session, Claude may not find the session (its files are keyed to the project root where `claude` was launched).
+
+To fix this, `TerminalState` stores `agent_session_project_cwd: Option<PathBuf>`. The Claude integration hook (`herdr-agent-state.ps1`/`.sh`) sends `--project-cwd <dir>` (from `workspace.current_dir` or `cwd` in the hook payload) when reporting a session via `herdr pane report-agent-session`. The server stores this in `terminal.agent_session_project_cwd` and persists it in `PaneAgentSessionSnapshot.project_cwd`. On restore, if a pane has a pending agent resume plan and `project_cwd` is set and exists on disk, the terminal spawns in `project_cwd` rather than the snapshot CWD.
 
 ## Vendored libghostty-vt
 

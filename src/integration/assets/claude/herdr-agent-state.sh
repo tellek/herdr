@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=7
+# HERDR_INTEGRATION_VERSION=8
 
 set -eu
 
@@ -111,6 +111,11 @@ else:
             params["agent_session_path"] = agent_session_path
         if session_start_source:
             params["session_start_source"] = session_start_source
+        # Pass the project CWD so herdr can resume in the correct directory.
+        ws = hook_input.get("workspace") or {}
+        project_cwd = ws.get("current_dir") or hook_input.get("cwd")
+        if isinstance(project_cwd, str) and project_cwd:
+            params["project_cwd"] = project_cwd
         request = {
             "id": request_id,
             "method": "pane.report_agent_session",

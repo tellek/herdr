@@ -79,6 +79,9 @@ pub struct TerminalState {
     pub launch_argv: Option<Vec<String>>,
     pub respawn_shell_on_exit: bool,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
+    /// CWD where the agent was launched (project root), stored at SessionStart
+    /// so we can resume in the same directory regardless of where it navigated.
+    pub agent_session_project_cwd: Option<PathBuf>,
 }
 
 impl TerminalState {
@@ -105,6 +108,7 @@ impl TerminalState {
             launch_argv: None,
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
+            agent_session_project_cwd: None,
         }
     }
 
@@ -924,6 +928,7 @@ impl TerminalState {
         self.launch_argv = None;
         self.respawn_shell_on_exit = false;
         self.pending_agent_resume_plan = None;
+        self.agent_session_project_cwd = None;
         self.clear_agent_name();
     }
 

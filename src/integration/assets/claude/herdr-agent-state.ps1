@@ -2,7 +2,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=7
+# HERDR_INTEGRATION_VERSION=8
 
 param([string]$Action = "")
 
@@ -76,6 +76,11 @@ try {
     }
     if ($payload.hook_event_name -eq "SessionStart" -and $payload.source -is [string] -and -not [string]::IsNullOrWhiteSpace($payload.source)) {
         $args += @("--session-start-source", "$($payload.source)")
+    }
+    # Pass the project CWD so herdr can resume in the correct directory.
+    $projectCwd = if ($payload.workspace -and $payload.workspace.current_dir) { $payload.workspace.current_dir } elseif ($payload.cwd) { $payload.cwd } else { $null }
+    if (-not [string]::IsNullOrWhiteSpace($projectCwd)) {
+        $args += @("--project-cwd", "$projectCwd")
     }
     & herdr @args 2>$null | Out-Null
 } catch {

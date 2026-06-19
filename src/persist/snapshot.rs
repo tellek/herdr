@@ -113,6 +113,10 @@ pub struct PaneAgentSessionSnapshot {
     pub agent: String,
     pub kind: crate::agent_resume::AgentSessionRefKind,
     pub value: String,
+    /// Directory where the agent was launched (project root), used to resume
+    /// the agent in the same directory so it can locate its session files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_cwd: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -339,6 +343,7 @@ fn capture_tab(
                 .get(id)
                 .and_then(|pane| terminals.get(&pane.attached_terminal_id))
                 .and_then(|terminal| {
+                    let project_cwd = terminal.agent_session_project_cwd.clone();
                     if let Some(authority) = terminal.hook_authority.as_ref() {
                         if let Some(session_ref) = authority.session_ref.as_ref() {
                             return Some(PaneAgentSessionSnapshot {
@@ -346,6 +351,7 @@ fn capture_tab(
                                 agent: authority.agent_label.clone(),
                                 kind: session_ref.kind,
                                 value: session_ref.value.clone(),
+                                project_cwd,
                             });
                         }
                     }
@@ -355,6 +361,7 @@ fn capture_tab(
                             agent: session.agent.clone(),
                             kind: session.session_ref.kind,
                             value: session.session_ref.value.clone(),
+                            project_cwd,
                         }
                     })
                 });

@@ -1242,6 +1242,7 @@ impl App {
             session_start_source: crate::agent_resume::normalize_claude_session_start_source(
                 params.session_start_source,
             ),
+            project_cwd: params.project_cwd.map(std::path::PathBuf::from),
         });
 
         encode_success(id, ResponseResult::Ok {})
