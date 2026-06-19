@@ -69,6 +69,7 @@ pub struct TerminalState {
     pub persisted_agent_session: Option<crate::agent_resume::PersistedAgentSession>,
     pub manual_label: Option<String>,
     pub agent_name: Option<String>,
+    pub session_title: Option<String>,
     hook_report_sequences: HashMap<String, u64>,
     suppressed_full_lifecycle_hook_reports: HashMap<String, SuppressedFullLifecycleHookReport>,
     metadata_report_sequences: HashMap<String, u64>,
@@ -94,6 +95,7 @@ impl TerminalState {
             persisted_agent_session: None,
             manual_label: None,
             agent_name: None,
+            session_title: None,
             hook_report_sequences: HashMap::new(),
             suppressed_full_lifecycle_hook_reports: HashMap::new(),
             metadata_report_sequences: HashMap::new(),
@@ -890,6 +892,18 @@ impl TerminalState {
     pub fn set_agent_name(&mut self, name: String) {
         let name = name.trim().to_string();
         self.agent_name = (!name.is_empty()).then_some(name);
+    }
+
+    pub fn set_session_title(&mut self, title: Option<String>) {
+        self.session_title = title.filter(|t| !t.trim().is_empty());
+    }
+
+    /// The label to use as the primary display name in the agent panel.
+    /// Prefers agent_name (explicit rename) then session_title (auto-discovered).
+    pub fn primary_display_name(&self) -> Option<&str> {
+        self.agent_name
+            .as_deref()
+            .or_else(|| self.session_title.as_deref())
     }
 
     pub fn clear_agent_name(&mut self) {

@@ -49,6 +49,12 @@ python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_cha
 
 **Sidebar layout.** The left sidebar shows only the agents section — the spaces/workspaces list is hidden. The agent panel spans the full sidebar height minus reserved rows (2 when `mouse_capture=true`, else 1). The menu button sits at the second-to-last row; the collapse toggle is at the last row. `workspace_at_row()` always returns `None`; workspace switching goes through the agent list. `workspace_card_areas` is always set to `Vec::new()` in `compute_view_internal`. The collapsed sidebar shows only agent markers (no workspace dots).
 
+## Agent naming
+
+Agent entries in the left sidebar use a two-row display: primary label (row 1, bold) and agent label (row 2, secondary). The primary label defaults to the CWD folder name (via `derive_label_from_cwd` → `display_name_from`). If `agent_name` is set (via `herdr agent rename`), it overrides the primary label. If `session_title` is set (auto-discovered from Claude's JSONL file), it becomes the primary label when no `agent_name` is set.
+
+`session_title` is populated in `AppEvent::AgentSessionReported` (in `src/app/actions.rs`) when the agent is `claude`: it reads `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, finds the last `{"type":"ai-title","aiTitle":"..."}` or `{"type":"title","title":"..."}` entry, and stores it via `TerminalState::set_session_title`. The encoded path replaces all non-alphanumeric chars with `-` (e.g. `C:\git\herdr` → `C--git-herdr`). `name_override` in `PaneDetail` carries whichever of `agent_name`/`session_title` wins; `agent_label` (row 2) always shows the detected agent type.
+
 ## Paste handling
 
 Paste text is sent to PTY panes via `encode_paste_payload` in `src/pane.rs`. When the pane has bracketed paste mode enabled (`InputState::bracketed_paste`), the text is wrapped in `\x1b[200~...\x1b[201~`. When not, newlines are backslash-escaped so the shell treats the entire paste as a single command continuation rather than executing on each newline.

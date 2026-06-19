@@ -2442,18 +2442,57 @@ impl AppState {
                 seq,
                 session_ref,
                 session_start_source,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_session_ref_for_session_start(
-                        source,
-                        agent_label,
-                        session_ref,
-                        seq,
-                        session_start_source,
-                    )
-                })
-                .into_iter()
-                .collect(),
+            } => {
+                // Try to discover the Claude session title from the JSONL file.
+                let session_title = if agent_label == "claude" {
+                    let tid = self
+                        .workspaces
+                        .iter()
+                        .find_map(|ws| ws.terminal_id(pane_id).cloned());
+                    let cwd = tid
+                        .as_ref()
+                        .and_then(|tid| self.terminals.get(tid))
+                        .map(|t| t.cwd.clone());
+                    match (cwd, session_ref.as_ref()) {
+                        (Some(cwd), Some(sr))
+                            if sr.kind
+                                == crate::agent_resume::AgentSessionRefKind::Id =>
+                        {
+                            read_claude_session_ai_title(&cwd, &sr.value)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let updates: Vec<_> = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        terminal.set_agent_session_ref_for_session_start(
+                            source,
+                            agent_label,
+                            session_ref,
+                            seq,
+                            session_start_source,
+                        )
+                    })
+                    .into_iter()
+                    .collect();
+                // Set the session title when it was found and no explicit name exists.
+                if let Some(title) = session_title {
+                    let tid = self
+                        .workspaces
+                        .iter()
+                        .find_map(|ws| ws.terminal_id(pane_id).cloned());
+                    if let Some(tid) = tid {
+                        if let Some(terminal) = self.terminals.get_mut(&tid) {
+                            if terminal.agent_name.is_none() {
+                                terminal.set_session_title(Some(title));
+                            }
+                        }
+                    }
+                }
+                updates
+            }
             AppEvent::HookMetadataReported {
                 pane_id,
                 source,
@@ -2898,6 +2937,59 @@ impl AppState {
             self.remove_unattached_terminal_ids(pane_terminal_id);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Claude session title helpers
+// ---------------------------------------------------------------------------
+
+/// Encode a CWD path the same way Claude Code does for its projects directory.
+/// Each non-alphanumeric character is replaced with '-'.
+fn claude_encode_path(cwd: &std::path::Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// Try to read the ai-title from a Claude Code session JSONL file.
+///
+/// Claude Code stores session metadata in:
+///   `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`
+///
+/// Returns the last `ai-title` found, or None if unavailable.
+fn read_claude_session_ai_title(cwd: &std::path::Path, session_id: &str) -> Option<String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .ok()?;
+    let encoded = claude_encode_path(cwd);
+    let jsonl_path = std::path::Path::new(&home)
+        .join(".claude")
+        .join("projects")
+        .join(&encoded)
+        .join(format!("{session_id}.jsonl"));
+    let content = std::fs::read_to_string(&jsonl_path).ok()?;
+    let mut last_title: Option<String> = None;
+    for line in content.lines() {
+        if line.contains("\"ai-title\"") {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(title) = val.get("aiTitle").and_then(|t| t.as_str()) {
+                    last_title = Some(title.to_string());
+                }
+            }
+        }
+        // Also support user-set title (e.g. from /rename command)
+        if line.contains("\"title\"") && !line.contains("\"ai-title\"") {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+                if val.get("type").and_then(|t| t.as_str()) == Some("title") {
+                    if let Some(title) = val.get("title").and_then(|t| t.as_str()) {
+                        last_title = Some(title.to_string());
+                    }
+                }
+            }
+        }
+    }
+    last_title
 }
 
 // ---------------------------------------------------------------------------

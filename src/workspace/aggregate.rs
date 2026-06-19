@@ -13,6 +13,8 @@ pub struct PaneDetail {
     pub tab_label: String,
     pub label: String,
     pub agent_label: String,
+    /// Explicit display name override for primary label (agent_name or session_title).
+    pub name_override: Option<String>,
     #[allow(dead_code)]
     pub agent: Option<Agent>,
     pub state: AgentState,
@@ -43,21 +45,29 @@ impl Tab {
             .filter_map(|id| {
                 let pane = self.panes.get(id)?;
                 let terminal = terminals.get(&pane.attached_terminal_id)?;
-                let fallback_agent_label = terminal
-                    .agent_name
-                    .as_deref()
-                    .or_else(|| terminal.effective_agent_label())?
-                    .to_string();
+                // A pane appears in the agent panel if it has an agent_name or detected agent.
+                let has_agent_name = terminal.agent_name.is_some();
+                let effective_type = terminal.effective_agent_label();
+                if !has_agent_name && effective_type.is_none() {
+                    return None;
+                }
+                // Secondary label (row 2): prefer agent TYPE over agent_name.
                 let agent_label = terminal
                     .effective_display_agent()
-                    .unwrap_or_else(|| fallback_agent_label.clone());
+                    .or_else(|| effective_type.map(str::to_string))
+                    .unwrap_or_else(|| {
+                        terminal.agent_name.clone().unwrap_or_default()
+                    });
+                // Primary label override: agent_name (explicit) or session_title (auto).
+                let name_override = terminal.primary_display_name().map(str::to_string);
                 let presentation = terminal.effective_presentation();
                 Some(PaneDetail {
                     pane_id: *id,
                     tab_idx,
                     tab_label: tab_label.to_string(),
-                    label: agent_label.clone(),
+                    label: name_override.clone().unwrap_or_else(|| agent_label.clone()),
                     agent_label,
+                    name_override,
                     agent: terminal.effective_known_agent(),
                     state: terminal.state,
                     seen: pane.seen,
@@ -211,9 +221,10 @@ mod tests {
             .map(|detail| (detail.label, detail.agent_label, detail.agent))
             .collect();
 
+        // label (primary) uses agent_name; agent_label (secondary) shows agent TYPE
         assert_eq!(
             labels,
-            vec![("planner".into(), "planner".into(), Some(Agent::Pi))]
+            vec![("planner".into(), "pi".into(), Some(Agent::Pi))]
         );
     }
 

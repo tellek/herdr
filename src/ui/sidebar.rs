@@ -128,7 +128,10 @@ fn agent_panel_entries_with_runtimes(
                     ws_idx,
                     tab_idx: detail.tab_idx,
                     pane_id: detail.pane_id,
-                    primary_label: workspace_label.clone(),
+                    primary_label: detail
+                        .name_override
+                        .clone()
+                        .unwrap_or_else(|| workspace_label.clone()),
                     primary_tab_label: multi_tab.then_some(detail.tab_label),
                     agent_label: Some(detail.agent_label),
                     state: detail.state,
@@ -1337,8 +1340,9 @@ mod tests {
         app.selected = 0;
 
         let entries = agent_panel_entries(&app);
-        assert_eq!(entries[0].primary_label, "bridge");
-        assert_eq!(entries[0].agent_label.as_deref(), Some("planner"));
+        // agent_name becomes the primary label; secondary shows the agent TYPE
+        assert_eq!(entries[0].primary_label, "planner");
+        assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
     }
 
     #[test]
