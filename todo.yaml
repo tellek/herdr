@@ -31,4 +31,4 @@ todos:
     done: true
   - id: 10
     title: It looks like "the just lint was already failing before my changes due to pre-existing dead code." If there is something causing linting to fail all the time and its a complex solve, then we should try to add whats necessary for the linter to ignore those things.
-    done: false
+    done: true
