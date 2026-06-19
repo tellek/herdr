@@ -2445,6 +2445,10 @@ impl AppState {
                 project_cwd,
             } => {
                 // Try to discover the Claude session title from the JSONL file.
+                // Prefer project_cwd from the event (always the launch dir), then the
+                // stored project CWD, then current CWD as a last resort. This ensures
+                // the correct ~/.claude/projects/<encoded>/<id>.jsonl path is used even
+                // when the terminal has navigated into a subdirectory since launch.
                 let session_title = if agent_label == "claude" {
                     let tid = self
                         .workspaces
@@ -2453,7 +2457,13 @@ impl AppState {
                     let cwd = tid
                         .as_ref()
                         .and_then(|tid| self.terminals.get(tid))
-                        .map(|t| t.cwd.clone());
+                        .map(|t| {
+                            project_cwd
+                                .as_deref()
+                                .or(t.agent_session_project_cwd.as_deref())
+                                .unwrap_or(&t.cwd)
+                                .to_path_buf()
+                        });
                     match (cwd, session_ref.as_ref()) {
                         (Some(cwd), Some(sr))
                             if sr.kind == crate::agent_resume::AgentSessionRefKind::Id =>
@@ -2514,26 +2524,74 @@ impl AppState {
                 clear_state_labels,
                 seq,
                 ttl,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
-                        source,
-                        agent_label,
-                        applies_to_source,
-                        title,
-                        display_agent,
-                        custom_status,
-                        state_labels,
-                        clear_title,
-                        clear_display_agent,
-                        clear_custom_status,
-                        clear_state_labels,
-                        ttl,
-                        seq,
+            } => {
+                // Before updating metadata, capture session context so we can
+                // refresh session_title afterwards (picks up /rename changes).
+                let session_context = if source == "herdr:claude" {
+                    let tid = self
+                        .workspaces
+                        .iter()
+                        .find_map(|ws| ws.terminal_id(pane_id).cloned());
+                    tid.as_ref()
+                        .and_then(|tid| self.terminals.get(tid))
+                        .and_then(|t| {
+                            let pas = t.persisted_agent_session.as_ref()?;
+                            if pas.agent != "claude" {
+                                return None;
+                            }
+                            if pas.session_ref.kind != crate::agent_resume::AgentSessionRefKind::Id
+                            {
+                                return None;
+                            }
+                            let cwd = t
+                                .agent_session_project_cwd
+                                .as_deref()
+                                .unwrap_or(&t.cwd)
+                                .to_path_buf();
+                            Some((pas.session_ref.value.clone(), cwd))
+                        })
+                } else {
+                    None
+                };
+                let updates: Vec<_> = self
+                    .update_terminal_state(pane_id, |terminal| {
+                        terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
+                            source,
+                            agent_label,
+                            applies_to_source,
+                            title,
+                            display_agent,
+                            custom_status,
+                            state_labels,
+                            clear_title,
+                            clear_display_agent,
+                            clear_custom_status,
+                            clear_state_labels,
+                            ttl,
+                            seq,
+                        })
                     })
-                })
-                .into_iter()
-                .collect(),
+                    .into_iter()
+                    .collect();
+                // Refresh session_title on each Claude statusline hook call so that
+                // /rename is reflected in the sidebar without requiring a restart.
+                if let Some((session_id, cwd)) = session_context {
+                    if let Some(new_title) = read_claude_session_ai_title(&cwd, &session_id) {
+                        let tid = self
+                            .workspaces
+                            .iter()
+                            .find_map(|ws| ws.terminal_id(pane_id).cloned());
+                        if let Some(tid) = tid {
+                            if let Some(terminal) = self.terminals.get_mut(&tid) {
+                                if terminal.agent_name.is_none() {
+                                    terminal.set_session_title(Some(new_title));
+                                }
+                            }
+                        }
+                    }
+                }
+                updates
+            }
             AppEvent::HookAuthorityCleared {
                 pane_id,
                 source,
@@ -2963,13 +3021,23 @@ fn claude_encode_path(cwd: &std::path::Path) -> String {
 /// Claude Code stores session metadata in:
 ///   `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`
 ///
-/// Returns the last `ai-title` found, or None if unavailable.
+/// Returns the last `ai-title` or user-set `title` found, or None if unavailable.
 fn read_claude_session_ai_title(cwd: &std::path::Path, session_id: &str) -> Option<String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .ok()?;
+    read_claude_session_ai_title_from(std::path::Path::new(&home), cwd, session_id)
+}
+
+/// Inner implementation that takes an explicit home directory; used by tests to
+/// avoid touching the real `~/.claude/` tree.
+fn read_claude_session_ai_title_from(
+    home: &std::path::Path,
+    cwd: &std::path::Path,
+    session_id: &str,
+) -> Option<String> {
     let encoded = claude_encode_path(cwd);
-    let jsonl_path = std::path::Path::new(&home)
+    let jsonl_path = home
         .join(".claude")
         .join("projects")
         .join(&encoded)
@@ -5303,5 +5371,393 @@ mod tests {
         assert!(!deferred);
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "notes");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Claude session title helpers
+    // ---------------------------------------------------------------------------
+
+    fn make_session_jsonl_dir(home: &std::path::Path, cwd: &std::path::Path) {
+        let encoded = super::claude_encode_path(cwd);
+        let dir = home.join(".claude").join("projects").join(encoded);
+        std::fs::create_dir_all(&dir).unwrap();
+    }
+
+    fn write_session_jsonl(
+        home: &std::path::Path,
+        cwd: &std::path::Path,
+        session_id: &str,
+        content: &str,
+    ) {
+        make_session_jsonl_dir(home, cwd);
+        let encoded = super::claude_encode_path(cwd);
+        let path = home
+            .join(".claude")
+            .join("projects")
+            .join(encoded)
+            .join(format!("{session_id}.jsonl"));
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn claude_title_from_reads_ai_title_entry() {
+        let base = std::env::temp_dir().join(format!(
+            "herdr-claude-title-ai-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cwd = std::path::Path::new("/home/user/project");
+        let content = "{\"type\":\"summary\",\"summary\":\"did stuff\"}\n\
+                       {\"type\":\"ai-title\",\"aiTitle\":\"My AI Title\"}\n";
+        write_session_jsonl(&base, cwd, "abc123", content);
+
+        let title = super::read_claude_session_ai_title_from(&base, cwd, "abc123");
+        assert_eq!(title.as_deref(), Some("My AI Title"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn claude_title_from_reads_user_rename_title() {
+        let base = std::env::temp_dir().join(format!(
+            "herdr-claude-title-rename-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cwd = std::path::Path::new("/home/user/project");
+        // /rename produces a {"type":"title","title":"..."} entry
+        let content = "{\"type\":\"ai-title\",\"aiTitle\":\"AI Generated\"}\n\
+                       {\"type\":\"title\",\"title\":\"My Renamed Session\"}\n";
+        write_session_jsonl(&base, cwd, "def456", content);
+
+        let title = super::read_claude_session_ai_title_from(&base, cwd, "def456");
+        assert_eq!(title.as_deref(), Some("My Renamed Session"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn claude_title_from_returns_none_when_file_missing() {
+        let base = std::env::temp_dir().join(format!(
+            "herdr-claude-title-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let cwd = std::path::Path::new("/home/user/project");
+        let title = super::read_claude_session_ai_title_from(&base, cwd, "nosession");
+        assert!(title.is_none());
+    }
+
+    #[test]
+    fn agent_session_reported_sets_session_title_via_project_cwd() {
+        // Build a fake home with a JSONL at the project_cwd path.
+        let base = std::env::temp_dir().join(format!(
+            "herdr-claude-session-event-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project_cwd = base.join("myproject");
+        std::fs::create_dir_all(&project_cwd).unwrap();
+        // JSONL is at project_cwd, not at a subdirectory.
+        let session_id = "session-xyz";
+        write_session_jsonl(
+            &base,
+            &project_cwd,
+            session_id,
+            "{\"type\":\"ai-title\",\"aiTitle\":\"Project Title\"}\n",
+        );
+
+        // Set USERPROFILE so read_claude_session_ai_title finds the fake home.
+        let _old = std::env::var_os("USERPROFILE");
+        let _old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("USERPROFILE", &base);
+            std::env::remove_var("HOME");
+        }
+
+        let mut state = app_with_workspaces(&["active"]);
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+
+        // Set terminal.cwd to a subdirectory — the JSONL does NOT exist there.
+        let sub_cwd = project_cwd.join("src");
+        std::fs::create_dir_all(&sub_cwd).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = sub_cwd;
+
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(1),
+            session_ref: crate::agent_resume::AgentSessionRef::id(session_id),
+            session_start_source: Some("startup".into()),
+            project_cwd: Some(project_cwd.clone()),
+        });
+
+        // Restore env vars.
+        unsafe {
+            if let Some(v) = _old {
+                std::env::set_var("USERPROFILE", v);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+            if let Some(v) = _old_home {
+                std::env::set_var("HOME", v);
+            }
+        }
+
+        let terminal = state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(
+            terminal.session_title.as_deref(),
+            Some("Project Title"),
+            "session_title should be set from the project_cwd JSONL"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn agent_session_reported_refreshes_session_title_on_rename() {
+        // Simulate a /rename: first call sets ai-title, second call (after rename)
+        // finds a user title entry appended to the same JSONL.
+        let base = std::env::temp_dir().join(format!(
+            "herdr-claude-rename-refresh-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project_cwd = base.join("myproject");
+        std::fs::create_dir_all(&project_cwd).unwrap();
+        let session_id = "session-rename";
+
+        // Initial JSONL: only ai-title.
+        write_session_jsonl(
+            &base,
+            &project_cwd,
+            session_id,
+            "{\"type\":\"ai-title\",\"aiTitle\":\"Auto Title\"}\n",
+        );
+
+        let _old = std::env::var_os("USERPROFILE");
+        let _old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("USERPROFILE", &base);
+            std::env::remove_var("HOME");
+        }
+
+        let mut state = app_with_workspaces(&["active"]);
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = project_cwd.clone();
+
+        // First hook call: establishes session, sets ai-title.
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(1),
+            session_ref: crate::agent_resume::AgentSessionRef::id(session_id),
+            session_start_source: Some("startup".into()),
+            project_cwd: Some(project_cwd.clone()),
+        });
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .session_title
+                .as_deref(),
+            Some("Auto Title")
+        );
+
+        // Simulate /rename: append a user title entry to the JSONL.
+        let encoded = super::claude_encode_path(&project_cwd);
+        let jsonl_path = base
+            .join(".claude")
+            .join("projects")
+            .join(encoded)
+            .join(format!("{session_id}.jsonl"));
+        let mut content = std::fs::read_to_string(&jsonl_path).unwrap();
+        content.push_str("{\"type\":\"title\",\"title\":\"My Custom Name\"}\n");
+        std::fs::write(&jsonl_path, content).unwrap();
+
+        // Second hook call: should pick up the renamed title.
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(2),
+            session_ref: crate::agent_resume::AgentSessionRef::id(session_id),
+            session_start_source: None,
+            project_cwd: Some(project_cwd.clone()),
+        });
+
+        unsafe {
+            if let Some(v) = _old {
+                std::env::set_var("USERPROFILE", v);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+            if let Some(v) = _old_home {
+                std::env::set_var("HOME", v);
+            }
+        }
+
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .session_title
+                .as_deref(),
+            Some("My Custom Name"),
+            "session_title should update to user-renamed title on subsequent hook calls"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn hook_metadata_reported_refreshes_session_title_from_jsonl() {
+        // Verify that HookMetadataReported (fired on PreToolUse/PostToolUse/Stop)
+        // re-reads the JSONL so a /rename is reflected in the sidebar.
+        let base = std::env::temp_dir().join(format!(
+            "herdr-hook-metadata-title-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project_cwd = base.join("myproject");
+        std::fs::create_dir_all(&project_cwd).unwrap();
+        let session_id = "session-hook-refresh";
+
+        // Initial JSONL: only ai-title.
+        write_session_jsonl(
+            &base,
+            &project_cwd,
+            session_id,
+            "{\"type\":\"ai-title\",\"aiTitle\":\"AI Generated Title\"}\n",
+        );
+
+        let _old = std::env::var_os("USERPROFILE");
+        let _old_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("USERPROFILE", &base);
+            std::env::remove_var("HOME");
+        }
+
+        let mut state = app_with_workspaces(&["active"]);
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = project_cwd.clone();
+
+        // Register the session via AgentSessionReported (SessionStart).
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(1),
+            session_ref: crate::agent_resume::AgentSessionRef::id(session_id),
+            session_start_source: Some("startup".into()),
+            project_cwd: Some(project_cwd.clone()),
+        });
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .session_title
+                .as_deref(),
+            Some("AI Generated Title"),
+            "title should be set from JSONL at SessionStart"
+        );
+
+        // Simulate /rename: append user title to JSONL.
+        let encoded = super::claude_encode_path(&project_cwd);
+        let jsonl_path = base
+            .join(".claude")
+            .join("projects")
+            .join(encoded)
+            .join(format!("{session_id}.jsonl"));
+        let mut content = std::fs::read_to_string(&jsonl_path).unwrap();
+        content.push_str("{\"type\":\"title\",\"title\":\"My Renamed Session\"}\n");
+        std::fs::write(&jsonl_path, content).unwrap();
+
+        // Fire HookMetadataReported (as the statusline hook does on PreToolUse/Stop).
+        state.handle_app_event(AppEvent::HookMetadataReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: None,
+            applies_to_source: None,
+            title: None,
+            display_agent: None,
+            custom_status: Some("[claude-opus-4] effort:default | ctx:[██████████100%] | cost:$0.0001 | pts:[----------0%] | 📁 myproject".into()),
+            state_labels: std::collections::HashMap::new(),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            seq: Some(2),
+            ttl: None,
+        });
+
+        unsafe {
+            if let Some(v) = _old {
+                std::env::set_var("USERPROFILE", v);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+            if let Some(v) = _old_home {
+                std::env::set_var("HOME", v);
+            }
+        }
+
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .session_title
+                .as_deref(),
+            Some("My Renamed Session"),
+            "session_title should update via HookMetadataReported after /rename"
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

@@ -905,9 +905,7 @@ impl TerminalState {
     /// The label to use as the primary display name in the agent panel.
     /// Prefers agent_name (explicit rename) then session_title (auto-discovered).
     pub fn primary_display_name(&self) -> Option<&str> {
-        self.agent_name
-            .as_deref()
-            .or_else(|| self.session_title.as_deref())
+        self.agent_name.as_deref().or(self.session_title.as_deref())
     }
 
     pub fn clear_agent_name(&mut self) {

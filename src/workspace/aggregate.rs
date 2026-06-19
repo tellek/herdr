@@ -55,9 +55,7 @@ impl Tab {
                 let agent_label = terminal
                     .effective_display_agent()
                     .or_else(|| effective_type.map(str::to_string))
-                    .unwrap_or_else(|| {
-                        terminal.agent_name.clone().unwrap_or_default()
-                    });
+                    .unwrap_or_else(|| terminal.agent_name.clone().unwrap_or_default());
                 // Primary label override: agent_name (explicit) or session_title (auto).
                 let name_override = terminal.primary_display_name().map(str::to_string);
                 let presentation = terminal.effective_presentation();

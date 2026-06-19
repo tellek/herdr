@@ -53,7 +53,11 @@ python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_cha
 
 Agent entries in the left sidebar use a two-row display: primary label (row 1, bold) and agent label (row 2, secondary). The primary label defaults to the CWD folder name (via `derive_label_from_cwd` → `display_name_from`). If `agent_name` is set (via `herdr agent rename`), it overrides the primary label. If `session_title` is set (auto-discovered from Claude's JSONL file), it becomes the primary label when no `agent_name` is set.
 
-`session_title` is populated in `AppEvent::AgentSessionReported` (in `src/app/actions.rs`) when the agent is `claude`: it reads `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, finds the last `{"type":"ai-title","aiTitle":"..."}` or `{"type":"title","title":"..."}` entry, and stores it via `TerminalState::set_session_title`. The encoded path replaces all non-alphanumeric chars with `-` (e.g. `C:\git\herdr` → `C--git-herdr`). `name_override` in `PaneDetail` carries whichever of `agent_name`/`session_title` wins; `agent_label` (row 2) always shows the detected agent type.
+`session_title` is populated and kept fresh via two paths in `src/app/actions.rs`:
+1. **`AppEvent::AgentSessionReported`** — fired at `SessionStart`; reads `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` and stores the last `{"type":"ai-title","aiTitle":"..."}` or `{"type":"title","title":"..."}` entry via `TerminalState::set_session_title`. Prefers `project_cwd` from the event over `agent_session_project_cwd` over `terminal.cwd` to find the correct JSONL.
+2. **`AppEvent::HookMetadataReported`** — fired by the statusline hook on `PreToolUse`, `PostToolUse`, and `Stop`; when the source is `"herdr:claude"`, re-reads the same JSONL using the stored `persisted_agent_session.session_ref` and `agent_session_project_cwd`. This ensures that a `/rename` applied during a session is reflected in the sidebar on the next tool use, without requiring a restart.
+
+The encoded path replaces all non-alphanumeric chars with `-` (e.g. `C:\git\herdr` → `C--git-herdr`). `name_override` in `PaneDetail` carries whichever of `agent_name`/`session_title` wins; `agent_label` (row 2) always shows the detected agent type. `read_claude_session_ai_title_from(home, cwd, session_id)` is the inner testable helper; `read_claude_session_ai_title(cwd, session_id)` resolves home from env vars.
 
 ## Statusline panel
 

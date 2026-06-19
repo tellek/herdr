@@ -228,7 +228,7 @@ impl Workspace {
 
     // Test modules construct workspaces through the default constructor; production paths
     // use the env-aware variant so pane identity env is always explicit.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     pub fn new(
         initial_cwd: PathBuf,
         rows: u16,
@@ -1070,6 +1070,7 @@ impl Workspace {
         self.cached_git_branch.clone()
     }
 
+    #[allow(dead_code)]
     pub fn git_ahead_behind(&self) -> Option<(usize, usize)> {
         self.cached_git_ahead_behind
     }
@@ -1083,6 +1084,7 @@ impl Workspace {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn refresh_git_ahead_behind(&mut self) {
         let cwd = self.resolved_identity_cwd();
         self.cached_git_branch = cwd.as_deref().and_then(git_branch);

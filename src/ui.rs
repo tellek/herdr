@@ -51,11 +51,11 @@ pub(crate) use self::scrollbar::{
 };
 use self::settings::render_settings_overlay;
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
-use self::statusline::render_statusline;
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
     toast_notification_rect,
 };
+use self::statusline::render_statusline;
 use self::tabs::render_tab_bar;
 pub(crate) use self::{
     dialogs::{
@@ -71,12 +71,11 @@ pub(crate) use self::{
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
-        agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, compute_workspace_card_areas, expanded_sidebar_sections,
-        expanded_sidebar_toggle_rect, normalized_workspace_scroll, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_entries, workspace_list_rect,
-        workspace_list_scroll_metrics, workspace_list_scrollbar_rect, workspace_parent_group_state,
-        WorkspaceListEntry,
+        agent_panel_scrollbar_rect, agent_panel_toggle_rect, collapsed_sidebar_toggle_rect,
+        compute_workspace_card_areas, expanded_sidebar_sections, expanded_sidebar_toggle_rect,
+        normalized_workspace_scroll, sidebar_section_divider_rect, workspace_drop_indicator_row,
+        workspace_list_entries, workspace_list_rect, workspace_list_scroll_metrics,
+        workspace_list_scrollbar_rect, workspace_parent_group_state, WorkspaceListEntry,
     },
 };
 pub(crate) use self::{
@@ -204,8 +203,7 @@ fn compute_view_internal(
     // Reserve 1 row at bottom for the statusline panel
     let (terminal_area, statusline_rect) = if main_terminal_area.height > 1 {
         let [pane_area, sl_area] =
-            Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
-                .areas(main_terminal_area);
+            Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(main_terminal_area);
         (pane_area, sl_area)
     } else {
         (main_terminal_area, Rect::default())
@@ -1075,6 +1073,7 @@ mod tests {
             .to_string()
     }
 
+    #[allow(dead_code)]
     fn temp_git_repo(branch: &str) -> std::path::PathBuf {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

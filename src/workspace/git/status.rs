@@ -194,6 +194,7 @@ fn read_upstream_identity(info: &GitWorktreeInfo, branch: &str) -> Option<GitUps
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn git_ahead_behind(cwd: &Path) -> Option<(usize, usize)> {
     super::discovery::git_repo_root(cwd)?;
 

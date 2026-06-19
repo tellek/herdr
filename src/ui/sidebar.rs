@@ -84,12 +84,7 @@ pub(crate) fn agent_panel_toggle_rect(area: Rect, sort: AgentPanelSort) -> Rect 
 
     let label = agent_panel_sort_label(sort);
     let width = label.chars().count() as u16;
-    Rect::new(
-        area.x + area.width.saturating_sub(width),
-        area.y,
-        width,
-        1,
-    )
+    Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
 }
 
 pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
@@ -257,6 +252,7 @@ fn workspace_attention_priority(state: AgentState, seen: bool) -> u8 {
     }
 }
 
+#[allow(dead_code)]
 fn space_aggregate_state(app: &AppState, key: &str) -> (AgentState, bool) {
     app.workspaces
         .iter()
@@ -290,6 +286,7 @@ pub(crate) fn workspace_parent_group_state(
     })
 }
 
+#[allow(dead_code)]
 fn grouped_child_display_label(label: &str, branch: Option<&str>, has_custom_name: bool) -> String {
     if has_custom_name {
         return label.to_string();
@@ -628,6 +625,7 @@ pub(crate) fn compute_workspace_card_areas(
 }
 
 /// Auto-scale sidebar width based on workspace identity + agent summary.
+#[allow(dead_code)]
 pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect) {
     let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     if content.width == 0 || content.height == 0 {
@@ -777,12 +775,16 @@ pub(super) fn render_sidebar(
         } else {
             Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
         };
-        frame.render_widget(Paragraph::new(menu_line).alignment(Alignment::Right), menu_rect);
+        frame.render_widget(
+            Paragraph::new(menu_line).alignment(Alignment::Right),
+            menu_rect,
+        );
     }
 
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
+#[allow(dead_code)]
 fn render_workspace_list(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,

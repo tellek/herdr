@@ -66,6 +66,16 @@ Agent detection changes should use the manifest hot-reload loop. Can drives the 
 
 Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
 
+## Session title refresh (sidebar rename)
+
+`session_title` on `TerminalState` drives the primary agent panel label when no explicit `agent_name` override is set. It is refreshed from the Claude JSONL file (`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`) in two places inside `src/app/actions.rs`:
+
+1. **`AgentSessionReported`** (fired at `SessionStart`): reads the JSONL using `project_cwd` from the event (preferred), then `agent_session_project_cwd`, then `terminal.cwd` as fallback. The inner helper `read_claude_session_ai_title_from(home, cwd, session_id)` is testable without touching the real home directory.
+
+2. **`HookMetadataReported`** (fired on `PreToolUse`, `PostToolUse`, `Stop` via the statusline hook): when `source == "herdr:claude"`, looks up the terminal's `persisted_agent_session.session_ref` (the live session ID stored at `SessionStart`) and re-reads the JSONL. This ensures `/rename` changes appear in the sidebar on the next tool use without restarting herdr.
+
+Both paths only update `session_title` when `agent_name` is not set, so explicit renames via `herdr agent rename` always win.
+
 ## Dynamic agent label CWD (Windows)
 
 `PaneRuntime` holds a `foreground_pid: Arc<AtomicU32>` (default 0) shared with the detection task. The detection task sets it to the agent subprocess PID when it identifies a foreground agent process, or 0/shell-PID when the shell is foreground. On Windows, `PaneRuntime::cwd()` checks `foreground_pid` first — if it differs from `child_pid`, it calls `platform::process_cwd(foreground_pid)` to return the agent's actual CWD, making the sidebar agent label reflect where Claude is working rather than where the shell started.

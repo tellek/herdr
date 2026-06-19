@@ -319,6 +319,7 @@ impl AppState {
         None
     }
 
+    #[allow(dead_code)]
     fn collapsed_detail_workspace_idx(&self) -> Option<usize> {
         if matches!(
             self.mode,
@@ -420,10 +421,8 @@ impl AppState {
             return false;
         }
 
-        let rect = crate::ui::agent_panel_toggle_rect(
-            self.agent_panel_rect(),
-            self.agent_panel_sort,
-        );
+        let rect =
+            crate::ui::agent_panel_toggle_rect(self.agent_panel_rect(), self.agent_panel_sort);
         rect.width > 0
             && col >= rect.x
             && col < rect.x + rect.width

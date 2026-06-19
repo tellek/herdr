@@ -1950,20 +1950,23 @@ impl PaneRuntime {
                             };
                             if new_agent.is_some() {
                                 last_foreground_pgid = process_group_id;
-                                foreground_pid_for_task.store(process_group_id.unwrap_or(0), Ordering::Release);
+                                foreground_pid_for_task
+                                    .store(process_group_id.unwrap_or(0), Ordering::Release);
                                 acquisition_started_at = None;
                                 last_content_change_at = None;
                                 pending_restore_probe = false;
                             } else if agent_presence.current_agent().is_none() {
                                 last_foreground_pgid = process_group_id.or(foreground_pgid);
-                                foreground_pid_for_task.store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
+                                foreground_pid_for_task
+                                    .store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
                                 if had_process_probe && process_group_changed {
                                     acquisition_started_at = Some(now);
                                 }
                                 pending_restore_probe = false;
                             } else {
                                 last_foreground_pgid = process_group_id.or(foreground_pgid);
-                                foreground_pid_for_task.store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
+                                foreground_pid_for_task
+                                    .store(last_foreground_pgid.unwrap_or(0), Ordering::Release);
                             }
                             if changed {
                                 agent = agent_presence.current_agent();
@@ -2470,8 +2473,8 @@ impl PaneRuntime {
         {
             let fg_pid = self.foreground_pid.load(Ordering::Acquire);
             if fg_pid > 0 && fg_pid != child_pid {
-                if let Some(cwd) = crate::platform::process_cwd(fg_pid)
-                    .and_then(|p| usable_reported_cwd(p))
+                if let Some(cwd) =
+                    crate::platform::process_cwd(fg_pid).and_then(usable_reported_cwd)
                 {
                     return Some(cwd);
                 }
@@ -2599,7 +2602,9 @@ pub(crate) fn encode_paste_payload(text: &str, bracketed: bool) -> String {
     if bracketed {
         format!("\x1b[200~{text}\x1b[201~")
     } else {
-        text.replace("\r\n", "\n").replace('\r', "\n").replace('\n', "\\\n")
+        text.replace("\r\n", "\n")
+            .replace('\r', "\n")
+            .replace('\n', "\\\n")
     }
 }
 
@@ -2617,7 +2622,10 @@ mod tests {
 
     #[test]
     fn encode_paste_non_bracketed_escapes_newlines_with_backslash() {
-        assert_eq!(encode_paste_payload("hello\nworld", false), "hello\\\nworld");
+        assert_eq!(
+            encode_paste_payload("hello\nworld", false),
+            "hello\\\nworld"
+        );
     }
 
     #[test]
@@ -2645,10 +2653,18 @@ mod tests {
         let child_pid = Arc::new(AtomicU32::new(9999));
         let foreground_pid = Arc::new(AtomicU32::new(0));
         let result = {
-            let reported = reported_cwd.lock().unwrap().clone().and_then(usable_reported_cwd);
+            let reported = reported_cwd
+                .lock()
+                .unwrap()
+                .clone()
+                .and_then(usable_reported_cwd);
             let fg = foreground_pid.load(Ordering::Relaxed);
             let cp = child_pid.load(Ordering::Relaxed);
-            if fg > 0 && fg != cp { None } else { reported }
+            if fg > 0 && fg != cp {
+                None
+            } else {
+                reported
+            }
         };
         assert_eq!(result, Some(expected));
     }
@@ -2668,7 +2684,11 @@ mod tests {
         let result = if fg > 0 && fg != cp {
             crate::platform::process_cwd(fg).and_then(usable_reported_cwd)
         } else {
-            reported_cwd.lock().unwrap().clone().and_then(usable_reported_cwd)
+            reported_cwd
+                .lock()
+                .unwrap()
+                .clone()
+                .and_then(usable_reported_cwd)
         };
         assert_eq!(result, Some(own_cwd));
     }

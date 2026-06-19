@@ -45,7 +45,12 @@ pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
     let block = Block::default().style(Style::default().bg(p.panel_bg));
     frame.render_widget(block, area);
 
-    let inner = Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), area.height);
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
     if inner.width == 0 {
         return;
     }
@@ -55,10 +60,16 @@ pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
     } else if let Some(cwd) = focused_cwd_label(app) {
         Line::from(vec![
             Span::styled("\u{1F4C1} ", Style::default().fg(p.overlay0)),
-            Span::styled(cwd, Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                cwd,
+                Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD),
+            ),
         ])
     } else {
-        Line::from(Span::styled("no active session", Style::default().fg(p.overlay0)))
+        Line::from(Span::styled(
+            "no active session",
+            Style::default().fg(p.overlay0),
+        ))
     };
 
     frame.render_widget(Paragraph::new(line), inner);
