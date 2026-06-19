@@ -1,0 +1,16 @@
+todos:
+  - id: 1
+    title: When pasting into one of the terminals newlines are being treated as returns causing claude to execute the command before it is fully pasted. We need the pasted text to either be displayed the same as it is in the terminal with a [pasted text] placeholder, or a '\' being used on newlines so the full text ends up in a single prompt.
+    done: true
+  - id: 2
+    title: Remove or ignore the layout_apply_replaces_tab_with_requested_tree test so we dont deal with it anymore.
+    done: true
+  - id: 3
+    title: Remove the spaces pane section on the left side of the UI. The functionality behind the scenes can remain, but I have no interest in using spaces. Move the menu button down to the bottom left below the agents section and let the agents section span the full height of the left pane. The collapsed version of the left pane can just show agent markers, no spaces markers.
+    done: false
+  - id: 4
+    title: Agents in the agents section in the left pane should be named differently. The name should be the folder the terminal is working in IE: C:\GIT would be "GIT" and C:\GIT\herdr would be "herdr". That is the default behavior. However, if the user uses the /rename command in the claude session then the name lable of the agent in the left pane should be the name given to the session. This will require a hook so that we are aware of the session ID so that may be combined with the working folder to determine what file to pull the session name from in appropriate C:\Users\chris\.claude\projects folder.
+    done: false
+  - id: 5
+    title: Create a new panel at the bottom of the area  where the termal windows are grouped. It should go from the right of the left pane all the way to the right of the screen. This panel will contain essentially the statusline for whatever claude session is active. Look at what we have in the /statusline script to determine how to style it. Some of the information may be per session while some of it may not be. The per session information should change upon focusing on a different session.
+    done: false

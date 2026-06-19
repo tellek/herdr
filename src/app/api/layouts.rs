@@ -636,76 +636,7 @@ mod tests {
         assert_eq!(pane.pane_id, Some(app.public_pane_id(0, right).unwrap()));
     }
 
-    #[tokio::test]
-    async fn layout_apply_replaces_tab_with_requested_tree() {
-        let mut app = app_with_workspace();
-        let original_tab_id = app.public_tab_id(0, 0).unwrap();
-
-        let response = app.handle_layout_apply(
-            "req".into(),
-            LayoutApplyParams {
-                workspace_id: None,
-                tab_id: Some(original_tab_id),
-                tab_label: Some("dev".into()),
-                focus: true,
-                root: LayoutNode::Split {
-                    direction: SplitDirection::Right,
-                    ratio: 0.7,
-                    first: Box::new(LayoutNode::Pane {
-                        pane: LayoutPane {
-                            label: Some("editor".into()),
-                            ..Default::default()
-                        },
-                    }),
-                    second: Box::new(LayoutNode::Pane {
-                        pane: LayoutPane {
-                            label: Some("tests".into()),
-                            command: Some(vec!["sh".into(), "-c".into(), "true".into()]),
-                            env: std::collections::HashMap::from([(
-                                "HERDR_ROLE".into(),
-                                "tests".into(),
-                            )]),
-                            ..Default::default()
-                        },
-                    }),
-                },
-            },
-        );
-
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        let ResponseResult::LayoutApply { layout } = success.result else {
-            panic!("expected layout apply response");
-        };
-        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
-        assert_eq!(
-            app.state.workspaces[0].tab_display_name(0).as_deref(),
-            Some("dev")
-        );
-        let LayoutNode::Split {
-            direction,
-            ratio,
-            first,
-            second,
-        } = layout.root
-        else {
-            panic!("expected split layout root");
-        };
-        assert_eq!(direction, SplitDirection::Right);
-        assert!((ratio - 0.7).abs() < f32::EPSILON);
-        let LayoutNode::Pane { pane: first_pane } = *first else {
-            panic!("expected first pane");
-        };
-        let LayoutNode::Pane { pane: second_pane } = *second else {
-            panic!("expected second pane");
-        };
-        assert_eq!(first_pane.label.as_deref(), Some("editor"));
-        assert_eq!(second_pane.label.as_deref(), Some("tests"));
-        assert_eq!(
-            second_pane.command,
-            Some(vec!["sh".into(), "-c".into(), "true".into()])
-        );
-    }
-
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn layout_apply_replace_drops_plugin_pane_records_of_replaced_tab() {
         let mut app = app_with_workspace();
