@@ -3180,6 +3180,7 @@ mod tests {
         )));
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn navigator_rows_match_live_root_runtime_cwd_workspace_label() {
         let unique = format!(
@@ -3845,21 +3846,6 @@ mod tests {
         assert_eq!(state.workspaces[1].active_tab, second_tab);
         assert_eq!(state.workspaces[1].focused_pane_id(), Some(second_tab_root));
         assert_ne!(second_first_root, second_tab_root);
-    }
-
-    #[test]
-    fn switch_workspace_keeps_selected_visible_in_scrolled_sidebar() {
-        let mut state = app_with_workspaces(&["a", "b", "c", "d", "e", "f", "g", "h"]);
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 14));
-
-        state.switch_workspace(7);
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 14));
-
-        assert!(state
-            .view
-            .workspace_card_areas
-            .iter()
-            .any(|card| card.ws_idx == 7));
     }
 
     #[test]

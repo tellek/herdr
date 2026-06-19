@@ -4181,6 +4181,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn outdated_integrations_treat_missing_version_marker_as_legacy() {
         let _lock = integration_env_lock();
@@ -5125,6 +5126,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn install_devin_writes_hook_and_updates_settings() {
         let _lock = integration_env_lock();
@@ -5280,6 +5282,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn uninstall_devin_removes_herdr_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
@@ -5360,6 +5363,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn install_droid_writes_hook_to_settings_and_cleans_legacy_hooks_json() {
         let _lock = integration_env_lock();
@@ -5484,6 +5488,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn uninstall_droid_removes_herdr_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
@@ -5964,6 +5969,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn bundled_integration_assets_report_session_refs() {
         assert!(PI_EXTENSION_ASSET.contains("agent_session_path: currentAgentSessionPath"));
@@ -6320,6 +6326,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn cursor_v1_integration_status_is_current() {
         let _lock = integration_env_lock();

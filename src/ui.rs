@@ -201,8 +201,15 @@ fn compute_view_internal(
 
     if !app.sidebar_collapsed {
         app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
-        let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
-        let max_agent_scroll = agent_panel_scroll_metrics(app, detail_area).max_offset_from_bottom;
+        // Agents now span full sidebar height (minus reserved rows for toggle/menu)
+        let reserved = if app.mouse_capture { 2u16 } else { 1u16 };
+        let agent_area = Rect::new(
+            sidebar_area.x,
+            sidebar_area.y,
+            sidebar_area.width,
+            sidebar_area.height.saturating_sub(reserved),
+        );
+        let max_agent_scroll = agent_panel_scroll_metrics(app, agent_area).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
     } else {
         app.workspace_scroll = app
@@ -211,11 +218,8 @@ fn compute_view_internal(
         app.agent_panel_scroll = 0;
     }
 
-    let workspace_card_areas = if app.sidebar_collapsed {
-        Vec::new()
-    } else {
-        compute_workspace_card_areas(app, sidebar_area)
-    };
+    // Workspace cards are no longer shown in the sidebar; keep empty to avoid stale click targets
+    let workspace_card_areas = Vec::new();
 
     let tab_bar_view = app
         .active
@@ -775,65 +779,6 @@ mod tests {
         compute_view(&mut app, Rect::new(0, 0, 100, 20));
 
         assert_eq!(app.view.sidebar_rect.width, 22);
-    }
-
-    #[test]
-    fn collapsed_sidebar_keeps_active_workspace_highlight_in_terminal_mode() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.sidebar_collapsed = true;
-        app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
-        app.active = Some(1);
-        app.selected = 0;
-        app.mode = Mode::Terminal;
-
-        compute_view(&mut app, Rect::new(0, 0, 80, 20));
-
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-
-        let (ws_area, _, _) = collapsed_sidebar_sections(app.view.sidebar_rect);
-        let active_row = ws_area.y + 1;
-        let active_style = buffer[(ws_area.x, active_row)].style();
-
-        assert_eq!(active_style.bg, Some(app.palette.surface_dim));
-    }
-
-    #[test]
-    fn expanded_sidebar_workspace_rows_show_state_before_name_without_numbers() {
-        let mut app = crate::app::state::AppState::test_new();
-        let mut ws = Workspace::test_new("one");
-        let repo = temp_git_repo("main");
-        ws.identity_cwd = repo.clone();
-        let root_pane = ws.tabs[0].root_pane;
-        ws.refresh_git_ahead_behind();
-
-        app.workspaces = vec![ws];
-        app.ensure_test_terminals();
-        let root_terminal_id = app.workspaces[0].tabs[0].panes[&root_pane]
-            .attached_terminal_id
-            .clone();
-        app.terminals.get_mut(&root_terminal_id).unwrap().cwd = repo.clone();
-        app.selected = 0;
-        app.mode = Mode::Navigate;
-
-        compute_view(&mut app, Rect::new(0, 0, 80, 20));
-
-        let backend = TestBackend::new(80, 20);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| render(&app, frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-
-        let card = app.view.workspace_card_areas[0].rect;
-        let line1 = buffer_row_text(buffer, card, card.y);
-        let line2 = buffer_row_text(buffer, card, card.y + 1);
-
-        assert!(line1.starts_with(" · one"));
-        assert!(!line1.contains("1 one"));
-        assert_eq!(line2, "   main");
-
-        std::fs::remove_dir_all(repo).ok();
     }
 
     #[test]

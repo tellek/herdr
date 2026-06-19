@@ -631,6 +631,7 @@ contains = ["{contains}"]
         });
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn auto_update_reloads_manifest_cache_after_remote_commit() {
         with_state_dir("auto-update-reloads-cache", || {

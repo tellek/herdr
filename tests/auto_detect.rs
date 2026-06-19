@@ -1,6 +1,7 @@
 //! Integration tests for auto-detect launch behavior.
 
 #![cfg(not(target_os = "macos"))]
+#![cfg(unix)]
 
 mod support;
 

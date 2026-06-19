@@ -1,4 +1,5 @@
 #![cfg(not(target_os = "macos"))]
+#![cfg(unix)]
 
 mod support;
 

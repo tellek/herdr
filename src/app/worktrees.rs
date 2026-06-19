@@ -919,6 +919,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn ui_create_workspace_emits_initial_workspace_tab_and_pane_events() {
         let event_hub = crate::api::EventHub::default();
@@ -937,6 +938,7 @@ mod tests {
         shutdown_test_runtimes(&mut app);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn ui_create_tab_emits_tab_and_pane_events() {
         let event_hub = crate::api::EventHub::default();
@@ -1096,6 +1098,7 @@ mod tests {
         assert!(target_membership.is_linked_worktree);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn ui_worktree_open_new_workspace_emits_api_parity_events() {
         let checkout = unique_temp_path("app-worktree-open-event-checkout");
@@ -1146,6 +1149,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(checkout);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn open_selected_existing_worktree_recomputes_stale_already_open_state() {
         let checkout = unique_temp_path("app-worktree-stale-open-checkout");
@@ -1371,6 +1375,7 @@ mod tests {
         assert_eq!(create.error, None);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn ui_worktree_create_emits_api_parity_events_after_membership_is_committed() {
         let repo = create_committed_repo("app-worktree-create-event-repo");

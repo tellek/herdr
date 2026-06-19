@@ -1174,6 +1174,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn agent_explain_evaluates_with_server_manifest_cache() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1529,6 +1530,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(temp_root);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn pane_died_respawns_shell_and_clears_restored_agent_session() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();

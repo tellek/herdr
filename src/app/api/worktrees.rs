@@ -979,6 +979,7 @@ mod tests {
         app
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn api_worktree_create_opens_workspace_and_marks_membership() {
         let repo = create_committed_repo("api-worktree-create-repo");

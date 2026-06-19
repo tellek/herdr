@@ -14,7 +14,7 @@ use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
-const AGENT_PANEL_HEADER_ROWS: u16 = 3;
+const AGENT_PANEL_HEADER_ROWS: u16 = 2;
 
 pub(crate) struct AgentPanelEntry {
     pub ws_idx: usize,
@@ -85,7 +85,7 @@ pub(crate) fn agent_panel_toggle_rect(area: Rect, sort: AgentPanelSort) -> Rect 
     let width = label.chars().count() as u16;
     Rect::new(
         area.x + area.width.saturating_sub(width),
-        area.y + 1,
+        area.y,
         width,
         1,
     )
@@ -633,11 +633,10 @@ pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect
     (ws_area, Some(divider_y), detail_area)
 }
 
-/// Collapsed sidebar: workspace glance on top, compact agent list below.
+/// Collapsed sidebar: agent markers spanning full height.
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
-    let is_navigating = matches!(app.mode, Mode::Navigate);
-
     let p = &app.palette;
+    let is_navigating = matches!(app.mode, Mode::Navigate);
     let sep_style = if is_navigating {
         Style::default().fg(p.accent)
     } else {
@@ -650,97 +649,39 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
-    if ws_area == Rect::default() {
-        render_sidebar_toggle(app, frame, area, true, p);
-        return;
-    }
+    // Content area: all rows except the last (toggle)
+    let content_h = area.height.saturating_sub(1);
+    let content_area = Rect::new(area.x, area.y, area.width.saturating_sub(1), content_h);
 
-    for (visible_idx, ws) in app.workspaces.iter().enumerate() {
-        let y = ws_area.y + visible_idx as u16;
-        if y >= ws_area.y + ws_area.height {
+    let entries = agent_panel_entries(app);
+    for (entry_idx, entry) in entries.iter().enumerate() {
+        let y = content_area.y + entry_idx as u16;
+        if y >= content_area.y + content_area.height {
             break;
         }
-        let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
-        let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
-        let is_selected = visible_idx == app.selected && is_navigating;
-        let is_active = Some(visible_idx) == app.active;
-        let row_style = if is_selected {
-            Style::default().bg(p.surface0)
-        } else if is_active {
+        let is_active = app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id);
+        let is_selected = is_navigating && Some(entry.ws_idx) == app.active.or(Some(app.selected));
+        let row_style = if is_active {
             Style::default().bg(p.surface_dim)
+        } else if is_selected {
+            Style::default().bg(p.surface0)
         } else {
             Style::default()
         };
-        let num_style = if is_selected {
-            Style::default().fg(p.overlay1).bg(p.surface0)
-        } else if is_active {
-            Style::default().fg(p.text).bg(p.surface_dim)
-        } else {
-            Style::default().fg(p.overlay0)
-        };
-
-        if is_selected || is_active {
+        if is_active || is_selected {
             let buf = frame.buffer_mut();
-            for x in ws_area.x..ws_area.x + ws_area.width {
+            for x in content_area.x..content_area.x + content_area.width {
                 buf[(x, y)].set_style(row_style);
             }
         }
-
+        let (icon, icon_style) = agent_icon(entry.state, entry.seen, app.spinner_tick, p);
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::styled(format!("{}", visible_idx + 1), num_style),
                 Span::styled(" ", row_style),
                 Span::styled(icon, icon_style),
             ])),
-            Rect::new(ws_area.x, y, ws_area.width, 1),
+            Rect::new(content_area.x, y, content_area.width, 1),
         );
-    }
-
-    if let Some(divider_y) = divider_y {
-        let buf = frame.buffer_mut();
-        for x in ws_area.x..ws_area.x + ws_area.width {
-            buf[(x, divider_y)].set_symbol("─");
-            buf[(x, divider_y)].set_style(Style::default().fg(p.surface_dim));
-        }
-    }
-
-    let detail_ws_idx = if is_navigating {
-        Some(app.selected)
-    } else {
-        app.active
-    };
-    let detail_content_area = Rect::new(
-        detail_area.x,
-        detail_area.y,
-        detail_area.width,
-        detail_area.height.saturating_sub(1),
-    );
-    if detail_content_area != Rect::default() {
-        if let Some(ws_idx) = detail_ws_idx {
-            if let Some(ws) = app.workspaces.get(ws_idx) {
-                for (detail_idx, detail) in ws.pane_details(&app.terminals).iter().enumerate() {
-                    let y = detail_content_area.y + detail_idx as u16;
-                    if y >= detail_content_area.y + detail_content_area.height {
-                        break;
-                    }
-                    let pane_num = ws
-                        .public_pane_number(detail.pane_id)
-                        .unwrap_or(detail_idx + 1);
-                    let pane_style = Style::default().fg(p.overlay0);
-                    let (icon, icon_style) =
-                        agent_icon(detail.state, detail.seen, app.spinner_tick, p);
-                    frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::styled(format!("{pane_num}"), pane_style),
-                            Span::styled(" ", pane_style),
-                            Span::styled(icon, icon_style),
-                        ])),
-                        Rect::new(detail_content_area.x, y, detail_content_area.width, 1),
-                    );
-                }
-            }
-        }
     }
 
     render_sidebar_toggle(app, frame, area, true, p);
@@ -798,10 +739,29 @@ pub(super) fn render_sidebar(
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+    // Reserve rows: 1 for sidebar toggle, plus 1 for menu footer when mouse is captured
+    let reserved = if app.mouse_capture { 2 } else { 1 };
+    let agent_h = area.height.saturating_sub(reserved);
+    let agent_area = Rect::new(area.x, area.y, area.width, agent_h);
+    render_agent_detail(app, terminal_runtimes, frame, agent_area);
 
-    render_workspace_list(app, terminal_runtimes, frame, ws_area, is_navigating);
-    render_agent_detail(app, terminal_runtimes, frame, detail_area);
+    // Menu button at the row just above the toggle (second-to-last row)
+    if app.mouse_capture && area.height >= 2 {
+        let menu_rect = app.global_launcher_rect();
+        let menu_line = if app.global_menu_attention_badge_visible() {
+            Line::from(vec![
+                Span::styled(
+                    "● ",
+                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("menu", Style::default().fg(p.overlay0)),
+            ])
+        } else {
+            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
+        };
+        frame.render_widget(Paragraph::new(menu_line).alignment(Alignment::Right), menu_rect);
+    }
+
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
@@ -1018,22 +978,16 @@ fn render_agent_detail(
 ) {
     let p = &app.palette;
 
-    if area.height < 3 {
+    if area.height < 2 {
         return;
     }
-
-    let sep_line = "─".repeat(area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
-        Rect::new(area.x, area.y, area.width, 1),
-    );
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
             " agents",
             Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
         )])),
-        Rect::new(area.x, area.y + 1, area.width, 1),
+        Rect::new(area.x, area.y, area.width, 1),
     );
     let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_sort);
     if toggle_rect != Rect::default() {
