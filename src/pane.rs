@@ -2367,11 +2367,7 @@ impl PaneRuntime {
             .input_state()
             .map(|state| state.bracketed_paste)
             .unwrap_or(false);
-        let payload = if bracketed {
-            format!("\x1b[200~{text}\x1b[201~")
-        } else {
-            text
-        };
+        let payload = encode_paste_payload(&text, bracketed);
         self.send_bytes(Bytes::from(payload)).await
     }
 
@@ -2574,9 +2570,48 @@ impl PaneRuntime {
     }
 }
 
+pub(crate) fn encode_paste_payload(text: &str, bracketed: bool) -> String {
+    if bracketed {
+        format!("\x1b[200~{text}\x1b[201~")
+    } else {
+        text.replace("\r\n", "\n").replace('\r', "\n").replace('\n', "\\\n")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encode_paste_bracketed_wraps_with_escape_sequences() {
+        assert_eq!(
+            encode_paste_payload("hello\nworld", true),
+            "\x1b[200~hello\nworld\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn encode_paste_non_bracketed_escapes_newlines_with_backslash() {
+        assert_eq!(encode_paste_payload("hello\nworld", false), "hello\\\nworld");
+    }
+
+    #[test]
+    fn encode_paste_non_bracketed_normalizes_crlf() {
+        assert_eq!(
+            encode_paste_payload("foo\r\nbar\r\nbaz", false),
+            "foo\\\nbar\\\nbaz"
+        );
+    }
+
+    #[test]
+    fn encode_paste_non_bracketed_normalizes_cr() {
+        assert_eq!(encode_paste_payload("foo\rbar", false), "foo\\\nbar");
+    }
+
+    #[test]
+    fn encode_paste_no_newlines_unchanged() {
+        assert_eq!(encode_paste_payload("hello world", false), "hello world");
+    }
 
     #[test]
     fn shutdown_liveness_treats_reaped_direct_child_as_gone() {

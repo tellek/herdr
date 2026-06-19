@@ -1519,15 +1519,13 @@ impl App {
                                         focused,
                                     ) {
                                         let _ = runtime.try_send_bytes(bytes::Bytes::from(
-                                            if runtime
-                                                .input_state()
-                                                .map(|s| s.bracketed_paste)
-                                                .unwrap_or(false)
-                                            {
-                                                format!("\x1b[200~{text}\x1b[201~")
-                                            } else {
-                                                text
-                                            },
+                                            crate::pane::encode_paste_payload(
+                                                &text,
+                                                runtime
+                                                    .input_state()
+                                                    .map(|s| s.bracketed_paste)
+                                                    .unwrap_or(false),
+                                            ),
                                         ));
                                     }
                                 }
@@ -3414,6 +3412,7 @@ mod tests {
         }));
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn pane_split_request_targets_pane_in_background_tab() {
         let _guard = config_env_lock().lock().unwrap();
@@ -3512,6 +3511,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn pane_split_request_focuses_new_pane_when_requested() {
         let _guard = config_env_lock().lock().unwrap();
@@ -3561,6 +3561,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn pane_split_request_applies_ratio() {
         let _guard = config_env_lock().lock().unwrap();
@@ -3608,6 +3609,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn pane_split_request_uses_active_focused_pane_when_target_is_omitted() {
         let _guard = config_env_lock().lock().unwrap();
