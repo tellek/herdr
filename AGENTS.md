@@ -66,6 +66,10 @@ Agent detection changes should use the manifest hot-reload loop. Can drives the 
 
 Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
 
+## Statusline panel
+
+A 1-row statusline bar lives at the bottom of the terminal pane area (desktop layout only). `ViewState::statusline_rect` holds its geometry, computed in `compute_view_internal` (`src/ui.rs`). The renderer (`src/ui/statusline.rs`) reads the focused pane's `TerminalState::effective_custom_status()` — populated by the `statusline-command.ps1` Claude hook — and falls back to the CWD folder name when no hook data is present. The panel changes automatically when focus switches to a different pane/session.
+
 ## Vendored libghostty-vt
 
 `vendor/libghostty-vt.vendor.json` records the upstream source commit currently vendored.

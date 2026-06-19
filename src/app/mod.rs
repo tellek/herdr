@@ -553,6 +553,7 @@ impl App {
                 tab_scroll_right_hit_area: Rect::default(),
                 new_tab_hit_area: Rect::default(),
                 terminal_area: Rect::default(),
+                statusline_rect: Rect::default(),
                 mobile_header_rect: Rect::default(),
                 mobile_menu_hit_area: Rect::default(),
                 toast_hit_area: Rect::default(),

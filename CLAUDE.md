@@ -55,6 +55,12 @@ Agent entries in the left sidebar use a two-row display: primary label (row 1, b
 
 `session_title` is populated in `AppEvent::AgentSessionReported` (in `src/app/actions.rs`) when the agent is `claude`: it reads `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`, finds the last `{"type":"ai-title","aiTitle":"..."}` or `{"type":"title","title":"..."}` entry, and stores it via `TerminalState::set_session_title`. The encoded path replaces all non-alphanumeric chars with `-` (e.g. `C:\git\herdr` → `C--git-herdr`). `name_override` in `PaneDetail` carries whichever of `agent_name`/`session_title` wins; `agent_label` (row 2) always shows the detected agent type.
 
+## Statusline panel
+
+A 1-row statusline bar sits at the bottom of the terminal pane area (right of the sidebar, spanning to the right edge). It is desktop-only (not rendered in mobile layout). `compute_view_internal` carves it out of `main_terminal_area` before passing `terminal_area` to the pane renderer; `ViewState::statusline_rect` stores its coordinates.
+
+`render_statusline` in `src/ui/statusline.rs` looks up the focused pane's `TerminalState` (via `app.active → ws.active_tab → tab.layout.focused() → tab.terminal_id() → app.terminals`) and renders `terminal.effective_custom_status()` when present. When `custom_status` is absent it falls back to the CWD folder name. The `custom_status` string is populated by the `statusline-command.ps1` Claude hook, which formats: `[Model] effort:X | ctx:[bar%] | cost:$X | pts:[bar%] | 📁 folder`.
+
 ## Paste handling
 
 Paste text is sent to PTY panes via `encode_paste_payload` in `src/pane.rs`. When the pane has bracketed paste mode enabled (`InputState::bracketed_paste`), the text is wrapped in `\x1b[200~...\x1b[201~`. When not, newlines are backslash-escaped so the shell treats the entire paste as a single command continuation rather than executing on each newline.

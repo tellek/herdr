@@ -17,6 +17,7 @@ mod scrollbar;
 mod settings;
 mod sidebar;
 mod status;
+mod statusline;
 mod tabs;
 mod widgets;
 
@@ -50,6 +51,7 @@ pub(crate) use self::scrollbar::{
 };
 use self::settings::render_settings_overlay;
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
+use self::statusline::render_statusline;
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
     toast_notification_rect,
@@ -191,12 +193,22 @@ fn compute_view_internal(
         Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
 
     let has_tabs = app.active.and_then(|i| app.workspaces.get(i)).is_some();
-    let (tab_bar_rect, terminal_area) = if has_tabs && main_area.height > 1 {
+    let (tab_bar_rect, main_terminal_area) = if has_tabs && main_area.height > 1 {
         let [tab_bar_rect, terminal_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
         (tab_bar_rect, terminal_area)
     } else {
         (Rect::default(), main_area)
+    };
+
+    // Reserve 1 row at bottom for the statusline panel
+    let (terminal_area, statusline_rect) = if main_terminal_area.height > 1 {
+        let [pane_area, sl_area] =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(1)])
+                .areas(main_terminal_area);
+        (pane_area, sl_area)
+    } else {
+        (main_terminal_area, Rect::default())
     };
 
     if !app.sidebar_collapsed {
@@ -281,6 +293,7 @@ fn compute_view_internal(
         tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
         new_tab_hit_area: tab_bar_view.new_tab_hit_area,
         terminal_area,
+        statusline_rect,
         mobile_header_rect: Rect::default(),
         mobile_menu_hit_area: Rect::default(),
         toast_hit_area,
@@ -350,6 +363,7 @@ fn compute_mobile_view(
         tab_scroll_right_hit_area: Rect::default(),
         new_tab_hit_area: Rect::default(),
         terminal_area,
+        statusline_rect: Rect::default(),
         mobile_header_rect: header_rect,
         mobile_menu_hit_area: header_hits.menu,
         toast_hit_area,
@@ -385,6 +399,9 @@ pub fn render_with_runtime_registry(
         render_tab_bar(app, frame, tab_bar_area);
     }
     render_panes(app, terminal_runtimes, frame, terminal_area);
+    if app.view.layout != ViewLayout::Mobile {
+        render_statusline(app, frame, app.view.statusline_rect);
+    }
 
     // Ambient notifications sit above panes, but below interactive overlays.
     render_notifications(app, frame, terminal_area);
