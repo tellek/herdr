@@ -100,6 +100,8 @@ When updating libghostty-vt, check every active patch in `vendor/libghostty-vt.p
 
 `just check` runs maintenance tests that verify local libghostty-vt patch files are listed in the index and reverse-apply cleanly against the vendored tree. Do not leave a patch file untracked or an indexed patch unapplied.
 
+**Zig version pinning.** The Zig build in `build.rs` requires Zig 0.15.2. On machines with a different Zig version (e.g. 0.16.0), set `LIBGHOSTTY_VT_PREBUILT=true` to skip the Zig build and link against the pre-built artifacts in `vendor/libghostty-vt/zig-out/lib/`. Do not set `LIBGHOSTTY_VT_SIMD` unless Zig 0.15.2 is installed — doing so invalidates the cargo build cache and triggers a Zig rebuild that will fail on any other version.
+
 ## Docs
 
 Stable public docs live in `website/src/content/docs/`. They are the currently released herdr.dev docs. Do not document unreleased behavior there during normal feature or fix work.

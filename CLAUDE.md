@@ -27,9 +27,11 @@ cargo run --release --locked -- --default-config  # print default config
 
 ```powershell
 just ci                                   # formatting + clippy + nextest
-$env:LIBGHOSTTY_VT_SIMD="false"; cargo clippy --bin herdr --locked --target x86_64-pc-windows-msvc -- -D warnings
+$env:LIBGHOSTTY_VT_PREBUILT="true"; cargo clippy --bin herdr --locked --target x86_64-pc-windows-msvc -- -D warnings
 python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_preview scripts.test_vendor_libghostty_vt
 ```
+
+**Zig / libghostty-vt build note.** The vendored `libghostty-vt` requires Zig 0.15.2 to rebuild from source. On machines with a newer Zig, set `LIBGHOSTTY_VT_PREBUILT=true` (or `1`/`yes`/`on`) to skip the Zig build step and use the pre-built artifacts already committed to `vendor/libghostty-vt/zig-out/lib/`. Never set `LIBGHOSTTY_VT_SIMD` as an environment variable unless you have Zig 0.15.2 installed — doing so invalidates the cargo build cache and triggers a Zig rebuild that will fail on any other Zig version.
 
 ## Architecture
 
