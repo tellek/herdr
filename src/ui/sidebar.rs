@@ -12,6 +12,7 @@ use crate::app::state::{AgentPanelSort, Palette};
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
+use crate::workspace::derive_label_from_cwd;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
 const AGENT_PANEL_HEADER_ROWS: u16 = 2;
@@ -124,21 +125,35 @@ fn agent_panel_entries_with_runtimes(
             let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
             ws.pane_details(&app.terminals)
                 .into_iter()
-                .map(move |detail| AgentPanelEntry {
-                    ws_idx,
-                    tab_idx: detail.tab_idx,
-                    pane_id: detail.pane_id,
-                    primary_label: detail
-                        .name_override
-                        .clone()
-                        .unwrap_or_else(|| workspace_label.clone()),
-                    primary_tab_label: multi_tab.then_some(detail.tab_label),
-                    agent_label: Some(detail.agent_label),
-                    state: detail.state,
-                    seen: detail.seen,
-                    last_agent_state_change_seq: detail.last_agent_state_change_seq,
-                    custom_status: detail.custom_status,
-                    state_labels: detail.state_labels,
+                .map(move |detail| {
+                    let pane_label = detail.name_override.clone().unwrap_or_else(|| {
+                        // If the workspace has an explicit custom name, use it.
+                        // Otherwise derive the label from the pane's own CWD so that
+                        // split panes in different directories show their actual folder.
+                        if let Some(name) = &ws.custom_name {
+                            return name.clone();
+                        }
+                        ws.tabs
+                            .get(detail.tab_idx)
+                            .and_then(|tab| {
+                                tab.cwd_for_pane(detail.pane_id, &app.terminals, terminal_runtimes)
+                            })
+                            .map(|cwd| derive_label_from_cwd(&cwd))
+                            .unwrap_or_else(|| workspace_label.clone())
+                    });
+                    AgentPanelEntry {
+                        ws_idx,
+                        tab_idx: detail.tab_idx,
+                        pane_id: detail.pane_id,
+                        primary_label: pane_label,
+                        primary_tab_label: multi_tab.then_some(detail.tab_label),
+                        agent_label: Some(detail.agent_label),
+                        state: detail.state,
+                        seen: detail.seen,
+                        last_agent_state_change_seq: detail.last_agent_state_change_seq,
+                        custom_status: detail.custom_status,
+                        state_labels: detail.state_labels,
+                    }
                 })
         })
         .collect();
