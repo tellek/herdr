@@ -1,34 +1,23 @@
 todos:
   - id: 1
-    title: When pasting into one of the terminals newlines are being treated as returns causing claude to execute the command before it is fully pasted. We need the pasted text to either be displayed the same as it is in the terminal with a [pasted text] placeholder, or a '\' being used on newlines so the full text ends up in a single prompt.
+    title: You have failed to get this right 2 times now. Step back and take a hard look at the issue: Create a new panel at the bottom of the area  where the termal windows are grouped. It should go from the right of the left pane all the way to the right of the screen. This panel will contain essentially the statusline for whatever claude session is active. Look at what we have in the /statusline script to determine how to style it. Some of the information may be per session while some of it may not be. The per session information should change upon focusing on a different session. You have got part of the way there but not all the way. The new statusline panel at the bottom of herdr is only showing the working folder for the terminal. This is good, but its supposed to be showing more information for the highlighted terminal and the claud session within. What should be visible is: [{model}] effort:{effort} | [{context progress bar}] {context percent}% | 💰 ${session cost} | 📁 {session work folder} All this information can be polled dynamically from file. Do NOT mark this as complete  until you are 100% positive that it is. Follow this checklist to see if your work is complete: 
+    [x] The statusline panel is created at the bottom of herdr and spans the entire width of the screen. 
+    [x] The statusline panel contains the current folder for the active terminal. 
+    [x] The statusline panel contains the model name that claude is currently set to.
+    [x] The statusline panel contains the effort level that claude is currently set to.
+    [x] The statusline panel contains a context progress bar that visually shows how much of the context window is currently being used in the active terminal's claude session.
+    [x] The statusline panel contains a context percent that shows the percentage of the context window that is currently being used in the active terminal's claude session.
+    [x] The statusline panel contains the current cost for the active terminal's claude session.
+    [x] ALL The information in the statusline panel updates dynamically as you switch between different terminals and claude sessions.
     done: true
   - id: 2
-    title: Remove or ignore the layout_apply_replaces_tab_with_requested_tree test so we dont deal with it anymore.
-    done: true
+    title: This task has been attempted 2 times now and has only reach half way. Take a step back and really think about the solution. Here are the previous instructions: It appears that the agent name label in the left pane is not updating like it should be. It always shows the working foldername no matter where you went in the terminal. So since it starts in C:\Users\chris all agents are named chris. It should dynamically change to whatever folder the terminal is running in. If in a golder within a git project, then it should be that git repo, and if /rename is called in claude then a hook in global settings.json should be used to capture the claude session id and use that and the working folder to determine which .claude\projects file to look in and pull the session name out to use that as the agents label. When doing /rename in a cluade session the agent name label in the left pane is not changing to the session name. It should be able to determine the session name based on the contents of the projects folder IE: .claude/projects/C--GIT/{sessionId}.jsonl ... Search online to get the format of that file so you know what to capture. Since we have the folder and the session id, it should be as simple as polling that file regularly to see if there's a name set. Do not consider the task complete until you are 100% sure that it is working as intended. Follow this checklist to ensure that you have completed the task:
+    [x] The agent name label in the left pane updates dynamically to show the current working folder for each terminal session. So if you navigate to a different folder in the terminal, the agent name label should change to reflect that folder name.
+    [x] If the terminal is within a git repository, the agent name label should show the git repository name instead of the folder name.
+    [ ] When /rename is called in a claude session, the agent name label should show that name. 
+    [ ] On herdr startup, when sessions are resumed it should set the appropriate name in the name label for the agent.
+    [ ] The order of name importance should be: session name > git repo name > folder name. 
+    done: false
   - id: 3
-    title: Remove the spaces pane section on the left side of the UI. The functionality behind the scenes can remain, but I have no interest in using spaces. Move the menu button down to the bottom left below the agents section and let the agents section span the full height of the left pane. The collapsed version of the left pane can just show agent markers, no spaces markers.
-    done: true
-  - id: 4
-    title: Agents in the agents section in the left pane should be named differently. The name should be the folder the terminal is working in IE: C:\GIT would be "GIT" and C:\GIT\herdr would be "herdr". That is the default behavior. However, if the user uses the /rename command in the claude session then the name lable of the agent in the left pane should be the name given to the session. This will require a hook so that we are aware of the session ID so that may be combined with the working folder to determine what file to pull the session name from in appropriate C:\Users\chris\.claude\projects folder.
-    done: true
-  - id: 5
-    title: Create a new panel at the bottom of the area  where the termal windows are grouped. It should go from the right of the left pane all the way to the right of the screen. This panel will contain essentially the statusline for whatever claude session is active. Look at what we have in the /statusline script to determine how to style it. Some of the information may be per session while some of it may not be. The per session information should change upon focusing on a different session.
-    done: true
-  - id: 6
-    title: It appears that the agent name label in the left pane is not updating like it should be. It always shows the working foldername no matter where you went in the terminal. So since it starts in C:\Users\chris all agents are named chris. It should dynamically change to whatever folder the terminal is running in. If in a golder within a git project, then it should be that git repo, and if /rename is called in claude then a hook in global settings.json should be used to capture the claude session id and use that and the working folder to determine which .claude\projects file to look in and pull the session name out to use that as the agents label.
-    done: true
-  - id: 7
-    title: The new statusline panel at the bottom of herdr is only showing the working folder for the terminal. This is good, but its supposed to be showing more information for the highlighted terminal and the claud session within. What should be visible is: [{model}] effort:{effort} | [{context progress bar}] {context percent}% | 💰 ${session cost} | 📁 {session work folder}
-    done: true
-  - id: 8
-    title: When you close herdr with open claud sessions it remembers them and automatically resumes them by running claude --resume {sessionId} ... The problem is that it doesnt appear to always be working and I would be that it's stuck to the original folder path the terminal had when launching, so when attempting to resume the folder and the session do not line up. Here is an example:
-      PS C:\git\herdr\logs> claude --resume 3a3a7587-9693-4ae9-9baf-41ca880a2daa
-      No conversation found with session ID: 3a3a7587-9693-4ae9-9baf-41ca880a2daa
-      PS C:\git\herdr\logs>
-    done: true
-  - id: 9
-    title: When doing /rename in a cluade session the agent name label in the left pane is not changing to the session name. It should be able to determine the session name based on the contents of the projects folder IE: .claude/projects/C--GIT/{sessionId}.jsonl ... Search online to get the format of that file so you know what to capture. Since we have the folder and the session id, it should be as simple as polling that file regularly to see if there's a name set.
-    done: true
-  - id: 10
-    title: It looks like "the just lint was already failing before my changes due to pre-existing dead code." If there is something causing linting to fail all the time and its a complex solve, then we should try to add whats necessary for the linter to ignore those things.
-    done: true
+    title: The menu button is on the right side of the left pane above the << colapse button. It should be moved to the left side of the left pase directly to the left of the << collapse button. This is a more intuitive location for it and will make it easier to find.
+    done: false
