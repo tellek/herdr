@@ -86,8 +86,41 @@ pub(super) fn normalize_reported_agent_label(agent: &str) -> Option<String> {
 pub(super) fn normalize_custom_status(status: Option<String>) -> Option<String> {
     let trimmed = status?.trim().to_string();
     let mut normalized = String::new();
-    for ch in trimmed.chars().filter(|ch| !ch.is_control()).take(32) {
+    for ch in trimmed.chars().filter(|ch| !ch.is_control()).take(512) {
         normalized.push(ch);
     }
     (!normalized.trim().is_empty()).then(|| normalized.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_custom_status_passes_full_statusline_string() {
+        // The hook produces a ~100-char string; it must survive normalize_custom_status intact.
+        let full = "[claude-opus-4] effort:default | [██████████] 100% | 💰 $0.0001 | 📁 myproject";
+        let result = normalize_custom_status(Some(full.to_string()));
+        assert_eq!(result.as_deref(), Some(full));
+    }
+
+    #[test]
+    fn normalize_custom_status_strips_control_chars() {
+        let with_ctrl = "hello\x01\x1bworld";
+        let result = normalize_custom_status(Some(with_ctrl.to_string()));
+        assert_eq!(result.as_deref(), Some("helloworld"));
+    }
+
+    #[test]
+    fn normalize_custom_status_returns_none_for_empty() {
+        assert_eq!(normalize_custom_status(None), None);
+        assert_eq!(normalize_custom_status(Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn normalize_custom_status_caps_at_512_chars() {
+        let long = "x".repeat(600);
+        let result = normalize_custom_status(Some(long));
+        assert_eq!(result.as_deref().map(|s| s.chars().count()), Some(512));
+    }
 }

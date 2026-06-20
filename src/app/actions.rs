@@ -5726,7 +5726,10 @@ mod tests {
             applies_to_source: None,
             title: None,
             display_agent: None,
-            custom_status: Some("[claude-opus-4] effort:default | ctx:[██████████100%] | cost:$0.0001 | pts:[----------0%] | 📁 myproject".into()),
+            custom_status: Some(
+                "[claude-opus-4] effort:default | [██████████] 100% | 💰 $0.0001 | 📁 myproject"
+                    .into(),
+            ),
             state_labels: std::collections::HashMap::new(),
             clear_title: false,
             clear_display_agent: false,

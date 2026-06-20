@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=8
+# HERDR_INTEGRATION_VERSION=9
 
 set -eu
 
@@ -55,7 +55,7 @@ if action == "statusline":
     def get_bar(pct):
         bar_width = 10
         filled = min(bar_width, max(0, int(pct / 100.0 * bar_width)))
-        return "█" * filled + "░" * (bar_width - filled) + f"{round(pct)}%"
+        return "█" * filled + "░" * (bar_width - filled)
 
     model_obj = hook_input.get("model") or {}
     model = model_obj.get("display_name") or "Unknown"
@@ -63,20 +63,20 @@ if action == "statusline":
     effort = style_obj.get("name") or "default"
     cw = hook_input.get("context_window") or {}
     used_pct = cw.get("used_percentage")
-    ctx = f"ctx:[{get_bar(float(used_pct))}]" if used_pct is not None else "ctx:[----------]"
+    if used_pct is not None:
+        ctx = f"[{get_bar(float(used_pct))}] {round(float(used_pct))}%"
+    else:
+        ctx = "[░░░░░░░░░░] --%"
     ti = float(cw.get("total_input_tokens") or 0)
     to_ = float(cw.get("total_output_tokens") or 0)
     cu = cw.get("current_usage") or {}
     tw = float(cu.get("cache_creation_input_tokens") or 0)
     tr = float(cu.get("cache_read_input_tokens") or 0)
     cost = f"${(ti / 1e6 * 3.00 + to_ / 1e6 * 15.00 + tw / 1e6 * 3.75 + tr / 1e6 * 0.30):.4f}"
-    rl = (hook_input.get("rate_limits") or {}).get("five_hour") or {}
-    five_pct = rl.get("used_percentage")
-    pts = f"pts:[{get_bar(float(five_pct))}]" if five_pct is not None else "pts:[----------]"
     ws = hook_input.get("workspace") or {}
     cwd = ws.get("current_dir") or hook_input.get("cwd") or "."
     folder = cwd.rstrip("/\\").split("/")[-1].split("\\")[-1] or cwd
-    status = f"[{model}] effort:{effort} | {ctx} | cost:{cost} | {pts} | \U0001f4c1 {folder}"
+    status = f"[{model}] effort:{effort} | {ctx} | \U0001f4b0 {cost} | \U0001f4c1 {folder}"
     request = {
         "id": request_id,
         "method": "pane.report_metadata",

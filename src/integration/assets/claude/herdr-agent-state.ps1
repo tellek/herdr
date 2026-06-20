@@ -2,7 +2,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=8
+# HERDR_INTEGRATION_VERSION=9
 
 param([string]$Action = "")
 
@@ -24,12 +24,13 @@ if ($Action -eq "statusline") {
         $filled = [int][Math]::Floor(($pct / 100.0) * $barWidth)
         if ($filled -lt 0) { $filled = 0 }
         if ($filled -gt $barWidth) { $filled = $barWidth }
-        ([string][char]0x2588 * $filled) + ([string][char]0x2591 * ($barWidth - $filled)) + "$([Math]::Round($pct, 0))%"
+        ([string][char]0x2588 * $filled) + ([string][char]0x2591 * ($barWidth - $filled))
     }
     $model   = if ($payload -and $payload.model -and $payload.model.display_name) { $payload.model.display_name } else { "Unknown" }
     $effort  = if ($payload -and $payload.output_style -and $payload.output_style.name) { $payload.output_style.name } else { "default" }
     $usedPct = if ($payload -and $payload.context_window -and $null -ne $payload.context_window.used_percentage) { $payload.context_window.used_percentage } else { $null }
-    $ctx     = if ($null -ne $usedPct) { "ctx:[$(Get-HerdrBar -pct ([double]$usedPct))]" } else { "ctx:[----------]" }
+    $ctxPct  = if ($null -ne $usedPct) { "$([Math]::Round([double]$usedPct, 0))%" } else { "--%"}
+    $ctx     = if ($null -ne $usedPct) { "[$(Get-HerdrBar -pct ([double]$usedPct))] $ctxPct" } else { "[----------] --%" }
     $cw      = if ($payload) { $payload.context_window } else { $null }
     $ti      = if ($cw -and $null -ne $cw.total_input_tokens)  { [double]$cw.total_input_tokens }  else { 0 }
     $to_     = if ($cw -and $null -ne $cw.total_output_tokens) { [double]$cw.total_output_tokens } else { 0 }
@@ -37,13 +38,12 @@ if ($Action -eq "statusline") {
     $tw      = if ($cu -and $null -ne $cu.cache_creation_input_tokens) { [double]$cu.cache_creation_input_tokens } else { 0 }
     $tr      = if ($cu -and $null -ne $cu.cache_read_input_tokens)     { [double]$cu.cache_read_input_tokens }     else { 0 }
     $cost    = "`$" + (($ti / 1e6 * 3.00) + ($to_ / 1e6 * 15.00) + ($tw / 1e6 * 3.75) + ($tr / 1e6 * 0.30)).ToString("F4")
-    $fivePct = if ($payload -and $payload.rate_limits -and $payload.rate_limits.five_hour -and $null -ne $payload.rate_limits.five_hour.used_percentage) { $payload.rate_limits.five_hour.used_percentage } else { $null }
-    $pts     = if ($null -ne $fivePct) { "pts:[$(Get-HerdrBar -pct ([double]$fivePct))]" } else { "pts:[----------]" }
     $cwd     = if ($payload -and $payload.workspace -and $payload.workspace.current_dir) { $payload.workspace.current_dir } elseif ($payload -and $payload.cwd) { $payload.cwd } else { "." }
     $folder  = Split-Path -Leaf $cwd.TrimEnd('/\')
     if (-not $folder) { $folder = $cwd }
-    $emoji   = [char]::ConvertFromUtf32(0x1F4C1)
-    $status  = "[$model] effort:$effort | $ctx | cost:$cost | $pts | $emoji $folder"
+    $emoji_money   = [char]::ConvertFromUtf32(0x1F4B0)
+    $emoji_folder  = [char]::ConvertFromUtf32(0x1F4C1)
+    $status  = "[$model] effort:$effort | $ctx | $emoji_money $cost | $emoji_folder $folder"
     $seq = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     try {
         & herdr pane report-metadata $env:HERDR_PANE_ID --source "herdr:claude" --custom-status $status --seq "$seq" 2>$null | Out-Null
