@@ -14,10 +14,10 @@ todos:
     title: This task has been attempted 2 times now and has only reach half way. Take a step back and really think about the solution. Here are the previous instructions: It appears that the agent name label in the left pane is not updating like it should be. It always shows the working foldername no matter where you went in the terminal. So since it starts in C:\Users\chris all agents are named chris. It should dynamically change to whatever folder the terminal is running in. If in a golder within a git project, then it should be that git repo, and if /rename is called in claude then a hook in global settings.json should be used to capture the claude session id and use that and the working folder to determine which .claude\projects file to look in and pull the session name out to use that as the agents label. When doing /rename in a cluade session the agent name label in the left pane is not changing to the session name. It should be able to determine the session name based on the contents of the projects folder IE: .claude/projects/C--GIT/{sessionId}.jsonl ... Search online to get the format of that file so you know what to capture. Since we have the folder and the session id, it should be as simple as polling that file regularly to see if there's a name set. Do not consider the task complete until you are 100% sure that it is working as intended. Follow this checklist to ensure that you have completed the task:
     [x] The agent name label in the left pane updates dynamically to show the current working folder for each terminal session. So if you navigate to a different folder in the terminal, the agent name label should change to reflect that folder name.
     [x] If the terminal is within a git repository, the agent name label should show the git repository name instead of the folder name.
-    [ ] When /rename is called in a claude session, the agent name label should show that name. 
-    [ ] On herdr startup, when sessions are resumed it should set the appropriate name in the name label for the agent.
-    [ ] The order of name importance should be: session name > git repo name > folder name. 
-    done: false
+    [x] When /rename is called in a claude session, the agent name label should show that name.
+    [x] On herdr startup, when sessions are resumed it should set the appropriate name in the name label for the agent.
+    [x] The order of name importance should be: session name > git repo name > folder name.
+    done: true
   - id: 3
     title: The menu button is on the right side of the left pane above the << colapse button. It should be moved to the left side of the left pase directly to the left of the << collapse button. This is a more intuitive location for it and will make it easier to find.
     done: false
