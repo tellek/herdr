@@ -761,7 +761,7 @@ pub(super) fn render_sidebar(
     let agent_area = Rect::new(area.x, area.y, area.width, agent_h);
     render_agent_detail(app, terminal_runtimes, frame, agent_area);
 
-    // Menu label sits directly to the left of «  on the last row
+    // Menu label sits at the left edge of the sidebar on the last row
     if app.mouse_capture && area.height >= 1 {
         let menu_rect = app.global_launcher_rect();
         if menu_rect != Rect::default() {
@@ -777,7 +777,7 @@ pub(super) fn render_sidebar(
                 Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
             };
             frame.render_widget(
-                Paragraph::new(menu_line).alignment(Alignment::Right),
+                Paragraph::new(menu_line).alignment(Alignment::Left),
                 menu_rect,
             );
         }
@@ -986,7 +986,7 @@ fn render_workspace_list(
             Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
         };
         frame.render_widget(
-            Paragraph::new(menu_line).alignment(Alignment::Right),
+            Paragraph::new(menu_line).alignment(Alignment::Left),
             menu_rect,
         );
     }
