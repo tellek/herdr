@@ -18,13 +18,12 @@ impl AppState {
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
-        // Agents span the full sidebar; reserve rows for toggle (and menu if mouse captured)
-        let reserved = if self.mouse_capture { 2 } else { 1 };
+        // Agents span the full sidebar; reserve 1 row for the combined menu+toggle footer
         Rect::new(
             sidebar.x,
             sidebar.y,
             sidebar.width,
-            sidebar.height.saturating_sub(reserved),
+            sidebar.height.saturating_sub(1),
         )
     }
 
@@ -195,15 +194,25 @@ impl AppState {
             return self.view.mobile_menu_hit_area;
         }
 
-        let footer = self.sidebar_footer_rect();
-        let width = if self.global_menu_attention_badge_visible() {
-            8
-        } else {
-            6
+        let sidebar = self.view.sidebar_rect;
+        if self.sidebar_collapsed || sidebar.width <= 2 || sidebar.height == 0 {
+            return Rect::default();
         }
-        .min(footer.width.max(1));
-        let x = footer.x + footer.width.saturating_sub(width);
-        Rect::new(x, footer.y, width, footer.height)
+        // The «  toggle sits at sidebar.x + sidebar.width - 2 on the last row.
+        // Place the menu label directly to its left on the same row.
+        let toggle_x = sidebar.x + sidebar.width.saturating_sub(2);
+        let y = sidebar.y + sidebar.height.saturating_sub(1);
+        let menu_width = if self.global_menu_attention_badge_visible() {
+            8u16
+        } else {
+            6u16
+        }
+        .min(toggle_x.saturating_sub(sidebar.x));
+        if menu_width == 0 {
+            return Rect::default();
+        }
+        let x = toggle_x.saturating_sub(menu_width);
+        Rect::new(x, y, menu_width, 1)
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
@@ -771,6 +780,7 @@ mod tests {
             ("ops", Agent::Gemini),
             ("qa", Agent::Pi),
             ("ci", Agent::Claude),
+            ("perf", Agent::Codex),
         ] {
             let tab_idx = ws.test_add_tab(Some(tab_name));
             let pane_id = ws.tabs[tab_idx].root_pane;
@@ -1159,5 +1169,27 @@ mod tests {
         assert!(app.state.drag.is_none());
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(snapshot.sidebar_width, Some(26));
+    }
+
+    #[test]
+    fn menu_button_is_on_same_row_as_collapse_toggle_and_to_its_left() {
+        let app = app_for_mouse_test();
+        // sidebar_rect = (0, 0, 26, 20) set by app_for_mouse_test
+        let sidebar = app.state.view.sidebar_rect;
+        let launcher = app.state.global_launcher_rect();
+        let toggle = crate::ui::expanded_sidebar_toggle_rect(sidebar);
+
+        // Both on the last row
+        assert_eq!(
+            launcher.y, toggle.y,
+            "menu and toggle must share the last row"
+        );
+        // Menu is to the left of the toggle
+        assert!(
+            launcher.x + launcher.width <= toggle.x,
+            "menu must end before the toggle starts"
+        );
+        // Menu is not empty
+        assert!(launcher.width > 0);
     }
 }

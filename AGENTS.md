@@ -76,6 +76,10 @@ Do not add large agent-specific full-screen fixture suites for routine manifest 
 
 Both paths only update `session_title` when `agent_name` is not set, so explicit renames via `herdr agent rename` always win.
 
+## Sidebar footer layout
+
+The bottom row of the expanded sidebar (`sidebar.y + sidebar.height - 1`) is a combined footer row shared by the menu label and the `«` collapse toggle. The toggle sits at column `sidebar.x + sidebar.width - 2` (just left of the `│` separator). When `mouse_capture` is enabled, the `menu` label is rendered directly to the left of the toggle on the same row. `global_launcher_rect()` and `agent_panel_rect()` both reserve exactly 1 row for this footer (not 2) regardless of `mouse_capture`.
+
 ## Dynamic agent label CWD (Windows)
 
 `PaneRuntime` holds a `foreground_pid: Arc<AtomicU32>` (default 0) shared with the detection task. The detection task sets it to the agent subprocess PID when it identifies a foreground agent process, or 0/shell-PID when the shell is foreground. On Windows, `PaneRuntime::cwd()` checks `foreground_pid` first — if it differs from `child_pid`, it calls `platform::process_cwd(foreground_pid)` to return the agent's actual CWD, making the sidebar agent label reflect where Claude is working rather than where the shell started.

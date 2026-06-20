@@ -49,7 +49,7 @@ python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_cha
 
 **Socket API.** Agents and external tools communicate with the running server via the local socket, using the same protocol as the client.
 
-**Sidebar layout.** The left sidebar shows only the agents section — the spaces/workspaces list is hidden. The agent panel spans the full sidebar height minus reserved rows (2 when `mouse_capture=true`, else 1). The menu button sits at the second-to-last row; the collapse toggle is at the last row. `workspace_at_row()` always returns `None`; workspace switching goes through the agent list. `workspace_card_areas` is always set to `Vec::new()` in `compute_view_internal`. The collapsed sidebar shows only agent markers (no workspace dots).
+**Sidebar layout.** The left sidebar shows only the agents section — the spaces/workspaces list is hidden. The agent panel spans the full sidebar height minus 1 reserved row (always 1, regardless of `mouse_capture`). The last row is a shared footer: the `«` collapse toggle is at column `sidebar.width - 2`, and the `menu` label (rendered only when `mouse_capture=true`) sits directly to its left on the same row. `global_launcher_rect()` and `agent_panel_rect()` use a fixed reservation of 1 row. `workspace_at_row()` always returns `None`; workspace switching goes through the agent list. `workspace_card_areas` is always set to `Vec::new()` in `compute_view_internal`. The collapsed sidebar shows only agent markers (no workspace dots).
 
 ## Agent naming
 

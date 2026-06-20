@@ -755,30 +755,32 @@ pub(super) fn render_sidebar(
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    // Reserve rows: 1 for sidebar toggle, plus 1 for menu footer when mouse is captured
-    let reserved = if app.mouse_capture { 2 } else { 1 };
+    // Reserve 1 row for the combined menu+toggle footer row
+    let reserved = 1;
     let agent_h = area.height.saturating_sub(reserved);
     let agent_area = Rect::new(area.x, area.y, area.width, agent_h);
     render_agent_detail(app, terminal_runtimes, frame, agent_area);
 
-    // Menu button at the row just above the toggle (second-to-last row)
-    if app.mouse_capture && area.height >= 2 {
+    // Menu label sits directly to the left of «  on the last row
+    if app.mouse_capture && area.height >= 1 {
         let menu_rect = app.global_launcher_rect();
-        let menu_line = if app.global_menu_attention_badge_visible() {
-            Line::from(vec![
-                Span::styled(
-                    "● ",
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("menu", Style::default().fg(p.overlay0)),
-            ])
-        } else {
-            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
-        };
-        frame.render_widget(
-            Paragraph::new(menu_line).alignment(Alignment::Right),
-            menu_rect,
-        );
+        if menu_rect != Rect::default() {
+            let menu_line = if app.global_menu_attention_badge_visible() {
+                Line::from(vec![
+                    Span::styled(
+                        "● ",
+                        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("menu", Style::default().fg(p.overlay0)),
+                ])
+            } else {
+                Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
+            };
+            frame.render_widget(
+                Paragraph::new(menu_line).alignment(Alignment::Right),
+                menu_rect,
+            );
+        }
     }
 
     render_sidebar_toggle(app, frame, area, false, p);
