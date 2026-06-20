@@ -916,9 +916,14 @@ impl TerminalState {
     }
 
     /// The label to use as the primary display name in the agent panel.
-    /// Prefers agent_name (explicit rename) then session_title (auto-discovered).
+    /// Priority: herdr pane name (`manual_label`) > CLI rename (`agent_name`) >
+    /// Claude session name (`session_title`). Falls back to the CWD-derived
+    /// repo/folder label at the call site when all are `None`.
     pub fn primary_display_name(&self) -> Option<&str> {
-        self.agent_name.as_deref().or(self.session_title.as_deref())
+        self.manual_label
+            .as_deref()
+            .or(self.agent_name.as_deref())
+            .or(self.session_title.as_deref())
     }
 
     pub fn clear_agent_name(&mut self) {

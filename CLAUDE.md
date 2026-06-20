@@ -7,6 +7,19 @@ AGENTS.md
 ## Rules
 
 - **ALWAYS capture a passing test baseline before making changes.** Run the full test suite first (via the `windows-tests` skill on Windows) and record the result, so that after your changes you can re-run and diff against the baseline to tell whether a failure was caused by your change or was pre-existing.
+- **ALWAYS when starting new work in a fresh session**
+    Execute the following in order:
+    1. Switch to the master branch
+    2. Get latest on the branch
+    3. Create a new branch
+    4. Run tests to get a baseline
+    5. Implement the changes required for the current work
+    6. Create/fix unit tests to cover the changes made
+    7. Run the unit tests you created, go back to #6 if any failures
+    8. Run all test, fix any issues, do not proceed until all tests pass
+    9. Update claude.md and agents.md with the appropriate information regarding the changes made in this session
+    10. Commit, push, and merge into the master branch (no pull request)
+    11. Mark the item as done in the todo.yaml (if you are working from there)
 
 ## Project
 
@@ -53,14 +66,11 @@ python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_cha
 
 ## Agent naming
 
-Agent entries in the left sidebar use a two-row display: primary label (row 1, bold) and agent label (row 2, secondary). The primary label defaults to the CWD folder name (via `derive_label_from_cwd` → `display_name_from`). If `agent_name` is set (via `herdr agent rename`), it overrides the primary label. If `session_title` is set (auto-discovered from Claude's JSONL file), it becomes the primary label when no `agent_name` is set.
+Agent entries in the left sidebar use a two-row display: primary label (row 1, bold) and agent label (row 2, secondary). The primary label is chosen by `TerminalState::primary_display_name()`, in priority order: `manual_label` (herdr pane rename via `pane.rename`) > `agent_name` (`herdr agent rename`) > `session_title` (the Claude session name). When all are `None`, the sidebar falls back to the CWD-derived label (`derive_label_from_cwd`: git repo root name, else folder name).
 
-`session_title` is populated and kept fresh via three paths:
-1. **`AppEvent::AgentSessionReported`** — fired at `SessionStart`; reads `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` and stores the last `{"type":"ai-title","aiTitle":"..."}` or `{"type":"title","title":"..."}` entry via `TerminalState::set_session_title`. Prefers `project_cwd` from the event over `agent_session_project_cwd` over `terminal.cwd` to find the correct JSONL.
-2. **`AppEvent::HookMetadataReported`** — fired by the statusline hook on `PreToolUse`, `PostToolUse`, and `Stop`; when the source is `"herdr:claude"`, re-reads the same JSONL using the stored `persisted_agent_session.session_ref` and `agent_session_project_cwd`. This ensures that a `/rename` applied during a session is reflected in the sidebar on the next tool use, without requiring a restart.
-3. **Snapshot persistence** — `PaneSnapshot.session_title` (added to `src/persist/snapshot.rs`) captures the value at snapshot time. On restore, `persist/restore.rs` calls `terminal.set_session_title(Some(title))` in both the pending-agent-resume path and the normal spawn path, so the correct label is shown immediately on startup before any hook fires.
+`session_title` is the live Claude session name and is kept fresh by the live-status poll: `AppState::refresh_agent_live_statuses()` (`src/app/live_status.rs`, every 2 s) reads the statusLine payload yaml for each Claude pane and mirrors its `session_name` field into `set_session_title`. The yaml payload is **authoritative for the current session**: when a payload exists, its `session_name` is written verbatim (`Some` sets it, absent/blank clears it), so a stale title from a closed session is dropped once a new, unnamed session replaces it. Note Claude only re-renders the statusLine (and thus rewrites the yaml) on activity, so a session renamed while idle won't reflect until its next turn. `/rename` is *not* written to the transcript jsonl in current Claude versions — `session_name` in the statusLine payload is the only carrier.
 
-The encoded path replaces all non-alphanumeric chars with `-` (e.g. `C:\git\herdr` → `C--git-herdr`). `name_override` in `PaneDetail` carries whichever of `agent_name`/`session_title` wins; `agent_label` (row 2) always shows the detected agent type. `read_claude_session_ai_title_from(home, cwd, session_id)` is the inner testable helper; `read_claude_session_ai_title(cwd, session_id)` resolves home from env vars.
+`name_override` in `PaneDetail` carries whatever `primary_display_name()` returns; `agent_label` (row 2) always shows the detected agent type.
 
 ## Statusline panel
 

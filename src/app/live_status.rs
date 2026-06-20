@@ -12,6 +12,9 @@ use crate::app::state::AppState;
 /// in the UI layer; this struct only carries data. Not persisted.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveStatus {
+    /// The Claude session name (set via `/rename`), if any. Drives the agent
+    /// label in the sidebar.
+    pub session_name: Option<String>,
     pub model: String,
     pub effort: String,
     pub fast_mode: bool,
@@ -55,6 +58,12 @@ fn parse_live_status(payload: &str) -> Option<LiveStatus> {
     let cost = v.get("cost");
 
     Some(LiveStatus {
+        session_name: v
+            .get("session_name")
+            .and_then(|n| n.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         model,
         effort,
         fast_mode: v
@@ -127,9 +136,19 @@ impl AppState {
             return;
         };
         for terminal in self.terminals.values_mut() {
-            terminal.live_status = terminal
-                .claude_session_id()
-                .and_then(|id| read_live_status_for_session(&home, id));
+            let Some(id) = terminal.claude_session_id().map(str::to_owned) else {
+                continue;
+            };
+            terminal.live_status = read_live_status_for_session(&home, &id);
+            // The statusLine payload carries the live `session_name` (set via
+            // `/rename`). When a payload exists it is authoritative for the
+            // current session: mirror its name into the label, clearing any
+            // stale title left over from a previous (closed) session that has
+            // since been replaced by a new, unnamed one.
+            if let Some(status) = terminal.live_status.as_ref() {
+                let name = status.session_name.clone();
+                terminal.set_session_title(name);
+            }
         }
     }
 }
@@ -190,6 +209,21 @@ mod tests {
     }
 
     #[test]
+    fn parses_session_name() {
+        let s = parse_live_status(r#"{ "model": { "display_name": "Opus 4.8" }, "session_name": "names" }"#).unwrap();
+        assert_eq!(s.session_name.as_deref(), Some("names"));
+    }
+
+    #[test]
+    fn blank_session_name_is_none() {
+        let s = parse_live_status(
+            r#"{ "model": { "display_name": "Opus 4.8" }, "session_name": "  " }"#,
+        )
+        .unwrap();
+        assert_eq!(s.session_name, None);
+    }
+
+    #[test]
     fn no_model_returns_none() {
         assert!(parse_live_status(r#"{ "effort": { "level": "low" } }"#).is_none());
     }
@@ -197,6 +231,47 @@ mod tests {
     #[test]
     fn invalid_json_returns_none() {
         assert!(parse_live_status("not json").is_none());
+    }
+
+    #[test]
+    fn refresh_clears_stale_title_for_new_unnamed_session() {
+        let home = std::env::temp_dir().join(format!(
+            "herdr-refresh-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let proj = home.join(".claude").join("projects").join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        // New session payload with no `session_name`.
+        std::fs::write(
+            proj.join("new-sess.yaml"),
+            r#"{"model":{"display_name":"Opus 4.8"}}"#,
+        )
+        .unwrap();
+
+        // nextest runs each test in its own process, so this env mutation is isolated.
+        unsafe {
+            std::env::set_var("USERPROFILE", &home);
+        }
+
+        let mut state = AppState::test_new();
+        let mut term =
+            crate::terminal::TerminalState::new(crate::terminal::TerminalId::alloc(), "/tmp".into());
+        term.set_agent_session_ref(
+            "herdr:claude".into(),
+            "claude".into(),
+            crate::agent_resume::AgentSessionRef::id("new-sess"),
+            Some(1),
+        );
+        term.set_session_title(Some("testing123".into())); // stale from the prior session
+        let tid = term.id.clone();
+        state.terminals.insert(tid.clone(), term);
+
+        state.refresh_agent_live_statuses();
+
+        assert_eq!(state.terminals.get(&tid).unwrap().session_title, None);
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

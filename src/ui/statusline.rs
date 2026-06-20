@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Paragraph},
@@ -181,7 +181,7 @@ pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
         ))
     };
 
-    frame.render_widget(Paragraph::new(line), inner);
+    frame.render_widget(Paragraph::new(line).alignment(Alignment::Center), inner);
 }
 
 #[cfg(test)]

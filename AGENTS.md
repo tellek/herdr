@@ -66,15 +66,11 @@ Agent detection changes should use the manifest hot-reload loop. Can drives the 
 
 Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
 
-## Session title refresh (sidebar rename)
+## Agent panel label priority
 
-`session_title` on `TerminalState` drives the primary agent panel label when no explicit `agent_name` override is set. It is refreshed from the Claude JSONL file (`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`) in two places inside `src/app/actions.rs`:
+`TerminalState::primary_display_name()` selects the primary sidebar label in priority order: `manual_label` (herdr pane rename via `pane.rename` → `set_manual_label`) > `agent_name` (`herdr agent rename`) > `session_title` (the live Claude session name). When all are `None`, the sidebar (`src/ui/sidebar.rs`) falls back to `derive_label_from_cwd` (git repo root name, else folder name).
 
-1. **`AgentSessionReported`** (fired at `SessionStart`): reads the JSONL using `project_cwd` from the event (preferred), then `agent_session_project_cwd`, then `terminal.cwd` as fallback. The inner helper `read_claude_session_ai_title_from(home, cwd, session_id)` is testable without touching the real home directory.
-
-2. **`HookMetadataReported`** (fired on `PreToolUse`, `PostToolUse`, `Stop` via the statusline hook): when `source == "herdr:claude"`, looks up the terminal's `persisted_agent_session.session_ref` (the live session ID stored at `SessionStart`) and re-reads the JSONL. This ensures `/rename` changes appear in the sidebar on the next tool use without restarting herdr.
-
-Both paths only update `session_title` when `agent_name` is not set, so explicit renames via `herdr agent rename` always win.
+`session_title` is refreshed by the live-status poll (`AppState::refresh_agent_live_statuses` in `src/app/live_status.rs`, every 2 s): for each Claude pane it reads the statusLine payload yaml and mirrors its `session_name` field into `set_session_title`. When a yaml payload exists it is authoritative for the current session — `session_name` is written verbatim, so an absent/blank name clears any stale title carried over from a closed session. Claude only re-renders the statusLine (rewriting the yaml) on activity, so a session renamed while idle won't reflect until its next turn; `/rename` is not written to the transcript jsonl in current Claude versions, so `session_name` is the only carrier. (The earlier JSONL-`ai-title` reader in `src/app/actions.rs` is no longer the source of `session_title`.)
 
 ## Sidebar footer layout
 
