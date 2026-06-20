@@ -199,7 +199,7 @@ impl AppState {
             return Rect::default();
         }
         // The «  toggle sits at sidebar.x + sidebar.width - 2 on the last row.
-        // Place the menu label directly to its left on the same row.
+        // Place the menu label at the left edge of the sidebar on the same row.
         let toggle_x = sidebar.x + sidebar.width.saturating_sub(2);
         let y = sidebar.y + sidebar.height.saturating_sub(1);
         let menu_width = if self.global_menu_attention_badge_visible() {
@@ -211,8 +211,7 @@ impl AppState {
         if menu_width == 0 {
             return Rect::default();
         }
-        let x = toggle_x.saturating_sub(menu_width);
-        Rect::new(x, y, menu_width, 1)
+        Rect::new(sidebar.x, y, menu_width, 1)
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
@@ -1172,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_button_is_on_same_row_as_collapse_toggle_and_to_its_left() {
+    fn menu_button_is_on_last_row_at_left_edge_of_sidebar() {
         let app = app_for_mouse_test();
         // sidebar_rect = (0, 0, 26, 20) set by app_for_mouse_test
         let sidebar = app.state.view.sidebar_rect;
@@ -1184,7 +1183,12 @@ mod tests {
             launcher.y, toggle.y,
             "menu and toggle must share the last row"
         );
-        // Menu is to the left of the toggle
+        // Menu is anchored to the left edge of the sidebar
+        assert_eq!(
+            launcher.x, sidebar.x,
+            "menu must start at the sidebar's left edge"
+        );
+        // Menu ends before the toggle starts
         assert!(
             launcher.x + launcher.width <= toggle.x,
             "menu must end before the toggle starts"
