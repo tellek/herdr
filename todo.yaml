@@ -20,4 +20,4 @@ todos:
     done: true
   - id: 3
     title: The menu button is on the right side of the left pane above the << colapse button. It should be moved to the left side of the left pase directly to the left of the << collapse button. This is a more intuitive location for it and will make it easier to find.
-    done: false
+    done: true
