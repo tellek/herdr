@@ -70,6 +70,9 @@ pub struct TerminalState {
     pub manual_label: Option<String>,
     pub agent_name: Option<String>,
     pub session_title: Option<String>,
+    /// Live statusline data (model/effort/context/cost/…) recomputed by polling
+    /// the Claude statusLine payload yaml. Not persisted.
+    pub live_status: Option<crate::app::live_status::LiveStatus>,
     hook_report_sequences: HashMap<String, u64>,
     suppressed_full_lifecycle_hook_reports: HashMap<String, SuppressedFullLifecycleHookReport>,
     metadata_report_sequences: HashMap<String, u64>,
@@ -99,6 +102,7 @@ impl TerminalState {
             manual_label: None,
             agent_name: None,
             session_title: None,
+            live_status: None,
             hook_report_sequences: HashMap::new(),
             suppressed_full_lifecycle_hook_reports: HashMap::new(),
             metadata_report_sequences: HashMap::new(),
@@ -900,6 +904,15 @@ impl TerminalState {
 
     pub fn set_session_title(&mut self, title: Option<String>) {
         self.session_title = title.filter(|t| !t.trim().is_empty());
+    }
+
+    /// The Claude session id for this pane, if a Claude id-session is persisted.
+    /// Used to locate the statusLine payload yaml for live status polling.
+    pub fn claude_session_id(&self) -> Option<&str> {
+        let session = self.persisted_agent_session.as_ref()?;
+        (session.agent == "claude"
+            && session.session_ref.kind == crate::agent_resume::AgentSessionRefKind::Id)
+            .then_some(session.session_ref.value.as_str())
     }
 
     /// The label to use as the primary display name in the agent panel.

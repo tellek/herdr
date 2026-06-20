@@ -4,8 +4,8 @@ use crossterm::terminal;
 
 use super::{
     background_update_check_enabled, repeat_key_identity, App, Mode, ANIMATION_INTERVAL,
-    AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL,
-    RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
+    AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, LIVE_STATUS_POLL_INTERVAL,
+    MIN_RENDER_INTERVAL, RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{GitStatusCacheEntry, Workspace, WorkspaceGitStatus};
@@ -268,6 +268,14 @@ impl App {
         }
 
         if self
+            .next_live_status_poll
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.run_live_status_poll(now);
+            changed = true;
+        }
+
+        if self
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
@@ -463,6 +471,11 @@ impl App {
         std::thread::spawn(move || crate::detect::manifest_update::auto_update(manifest_update_tx));
     }
 
+    pub(crate) fn run_live_status_poll(&mut self, now: Instant) {
+        self.next_live_status_poll = Some(now + LIVE_STATUS_POLL_INTERVAL);
+        self.state.refresh_agent_live_statuses();
+    }
+
     pub(crate) fn start_git_status_refresh_if_due(&mut self, now: Instant) {
         let Some(deadline) = self.git_refresh_deadline() else {
             return;
@@ -547,6 +560,7 @@ impl App {
                 .flatten(),
             self.next_auto_update_check,
             self.next_agent_manifest_update_check,
+            self.next_live_status_poll,
             self.agent_metadata_deadline,
             self.pending_agent_resume_deadline,
             self.session_save_deadline,
@@ -771,6 +785,7 @@ mod tests {
         app.state.workspaces.push(Workspace::test_new("test"));
         let now = Instant::now();
         app.last_git_remote_status_refresh = now - super::super::GIT_REMOTE_STATUS_REFRESH_INTERVAL;
+        app.next_live_status_poll = None;
 
         assert_eq!(
             app.next_headless_loop_deadline_with_git_refresh(now, false, false),

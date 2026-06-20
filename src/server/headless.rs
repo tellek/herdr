@@ -3426,6 +3426,15 @@ impl HeadlessServer {
 
         if self
             .app
+            .next_live_status_poll
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.app.run_live_status_poll(now);
+            changed = true;
+        }
+
+        if self
+            .app
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
@@ -4423,6 +4432,7 @@ next_tab = ""
             .state
             .workspaces
             .push(crate::workspace::Workspace::test_new("test"));
+        server.app.next_live_status_poll = None;
         let (writer, _control_rx, _render_rx) = test_client_writer();
 
         assert!(server.handle_server_event(ServerEvent::ClientConnected {
@@ -4456,6 +4466,7 @@ next_tab = ""
             .state
             .workspaces
             .push(crate::workspace::Workspace::test_new("test"));
+        server.app.next_live_status_poll = None;
         let (writer, _control_rx, _render_rx) = test_client_writer();
 
         assert!(server.handle_server_event(ServerEvent::ClientConnected {
