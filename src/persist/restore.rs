@@ -485,6 +485,7 @@ fn restore_tab(
 
         let saved_label = saved_pane.and_then(|p| p.label.clone());
         let saved_agent_name = saved_pane.and_then(|p| p.agent_name.clone());
+        let saved_session_title = saved_pane.and_then(|p| p.session_title.clone());
         let saved_launch_argv = saved_pane.and_then(|p| p.launch_argv.clone());
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_history =
@@ -542,6 +543,9 @@ fn restore_tab(
             }
             if let Some(agent_name) = saved_agent_name {
                 terminal.set_agent_name(agent_name);
+            }
+            if let Some(title) = saved_session_title {
+                terminal.set_session_title(Some(title));
             }
             if let Some(agent) = initial_restore_agent {
                 let _ = terminal.set_detected_state_with_screen_signals_at(
@@ -640,6 +644,9 @@ fn restore_tab(
                 }
                 if let Some(agent_name) = saved_agent_name {
                     terminal.set_agent_name(agent_name);
+                }
+                if let Some(title) = saved_session_title {
+                    terminal.set_session_title(Some(title));
                 }
                 if let Some(agent) = initial_restore_agent {
                     let _ = terminal.set_detected_state_with_screen_signals_at(
@@ -1196,6 +1203,7 @@ mod tests {
                             cwd,
                             label: None,
                             agent_name: None,
+                            session_title: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
                                 source: "herdr:opencode".into(),
                                 agent: "opencode".into(),
@@ -1276,6 +1284,7 @@ mod tests {
                             cwd: cwd.clone(),
                             label: None,
                             agent_name: None,
+                            session_title: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
                                 source: "herdr:claude".into(),
                                 agent: "claude".into(),
@@ -1354,6 +1363,7 @@ mod tests {
                             cwd: cwd.clone(),
                             label: None,
                             agent_name: None,
+                            session_title: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
                                 source: "herdr:claude".into(),
                                 agent: "claude".into(),
@@ -1429,6 +1439,7 @@ mod tests {
                                 cwd: cwd.clone(),
                                 label: None,
                                 agent_name: None,
+                                session_title: None,
                                 agent_session: None,
                                 launch_argv: None,
                             },
@@ -1439,6 +1450,7 @@ mod tests {
                                 cwd: cwd.clone(),
                                 label: None,
                                 agent_name: None,
+                                session_title: None,
                                 agent_session: None,
                                 launch_argv: None,
                             },
@@ -1491,6 +1503,7 @@ mod tests {
                     cwd: cwd.clone(),
                     label: None,
                     agent_name: None,
+                    session_title: None,
                     agent_session: None,
                     launch_argv: None,
                 },
@@ -1500,6 +1513,7 @@ mod tests {
             cwd: cwd.clone(),
             label: Some("planner".into()),
             agent_name: Some("planner".into()),
+            session_title: None,
             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
                 source: "herdr:codex".into(),
                 agent: "codex".into(),
@@ -1652,6 +1666,7 @@ mod tests {
                             cwd,
                             label: None,
                             agent_name: None,
+                            session_title: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
                                 source: "herdr:codex".into(),
                                 agent: "codex".into(),
@@ -1810,6 +1825,83 @@ mod tests {
         let _ = runtime.try_send_bytes(bytes::Bytes::from_static(b"exit\n"));
     }
 
+    #[test]
+    fn restore_preserves_session_title_from_snapshot() {
+        // Verify that a persisted session_title is restored into the terminal state
+        // so that the sidebar can show the correct name immediately on startup,
+        // before any hook fires.
+        let cwd = std::env::current_dir().unwrap();
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some("workspace".into()),
+                custom_name: None,
+                identity_cwd: cwd.clone(),
+                worktree_space: None,
+                public_pane_numbers: HashMap::new(),
+                next_public_pane_number: 0,
+                public_tab_numbers: Vec::new(),
+                next_public_tab_number: 0,
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(0),
+                    panes: HashMap::from([(
+                        0,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: cwd.clone(),
+                            label: None,
+                            agent_name: None,
+                            session_title: Some("My Renamed Session".into()),
+                            agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                                source: "herdr:claude".into(),
+                                agent: "claude".into(),
+                                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                                value: "claude-test-session-id".into(),
+                                project_cwd: Some(cwd.clone()),
+                            }),
+                            launch_argv: None,
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(0),
+                    root_pane: Some(0),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            sidebar_width: None,
+            sidebar_section_split: None,
+            collapsed_space_keys: Default::default(),
+        };
+        let (events, _event_rx) = mpsc::channel(4);
+
+        // resume_agents_on_restore=true causes the pending path — no runtime spawned.
+        let (_workspaces, terminals, _runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            0,
+            test_restore_shell(),
+            crate::config::ShellModeConfig::NonLogin,
+            true,
+            events,
+            Arc::new(tokio::sync::Notify::new()),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restore should create terminal state");
+        assert_eq!(
+            terminal.session_title.as_deref(),
+            Some("My Renamed Session"),
+            "session_title from snapshot should be restored into TerminalState"
+        );
+    }
+
     fn snapshot_with_saved_pane_history() -> (SessionSnapshot, SessionHistorySnapshot) {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
         let mut panes = HashMap::new();
@@ -1819,6 +1911,7 @@ mod tests {
                 cwd: cwd.clone(),
                 label: None,
                 agent_name: None,
+                session_title: None,
                 agent_session: None,
                 launch_argv: None,
             },
