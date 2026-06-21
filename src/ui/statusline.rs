@@ -123,6 +123,12 @@ fn live_status_spans(s: &LiveStatus, p: &Palette) -> Vec<Span<'static>> {
         ));
     }
 
+    // | session id
+    if let Some(id) = &s.session_id {
+        spans.push(Span::styled(" | ", dim));
+        spans.push(Span::styled(id.clone(), dim));
+    }
+
     spans
 }
 

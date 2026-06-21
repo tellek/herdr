@@ -28,6 +28,8 @@ pub struct LiveStatus {
     pub current_dir: String,
     pub added_dirs: usize,
     pub exceeds_200k: bool,
+    /// The Claude session id from the payload, if present.
+    pub session_id: Option<String>,
 }
 
 /// Parse a Claude statusLine payload (JSON, which is also valid YAML — the writer
@@ -103,6 +105,12 @@ fn parse_live_status(payload: &str) -> Option<LiveStatus> {
             .get("exceeds_200k_tokens")
             .and_then(|e| e.as_bool())
             .unwrap_or(false),
+        session_id: v
+            .get("session_id")
+            .and_then(|s| s.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
     })
 }
 
@@ -194,6 +202,13 @@ mod tests {
         assert_eq!(s.current_dir, "C:\\git\\herdr");
         assert_eq!(s.added_dirs, 2);
         assert!(!s.exceeds_200k);
+        assert_eq!(s.session_id.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn session_id_none_when_absent() {
+        let s = parse_live_status(r#"{ "model": { "display_name": "Opus 4.8" } }"#).unwrap();
+        assert_eq!(s.session_id, None);
     }
 
     #[test]
