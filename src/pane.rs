@@ -2599,12 +2599,11 @@ impl PaneRuntime {
 }
 
 pub(crate) fn encode_paste_payload(text: &str, bracketed: bool) -> String {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     if bracketed {
-        format!("\x1b[200~{text}\x1b[201~")
+        format!("\x1b[200~{normalized}\x1b[201~")
     } else {
-        text.replace("\r\n", "\n")
-            .replace('\r', "\n")
-            .replace('\n', "\\\n")
+        normalized.replace('\n', "\\\n")
     }
 }
 
@@ -2617,6 +2616,14 @@ mod tests {
         assert_eq!(
             encode_paste_payload("hello\nworld", true),
             "\x1b[200~hello\nworld\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn encode_paste_bracketed_normalizes_crlf() {
+        assert_eq!(
+            encode_paste_payload("foo\r\nbar\rbaz", true),
+            "\x1b[200~foo\nbar\nbaz\x1b[201~"
         );
     }
 

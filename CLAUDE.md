@@ -97,7 +97,7 @@ When herdr auto-resumes a Claude session it runs `claude --resume <id>` inside a
 
 ## Paste handling
 
-Paste text is sent to PTY panes via `encode_paste_payload` in `src/pane.rs`. When the pane has bracketed paste mode enabled (`InputState::bracketed_paste`), the text is wrapped in `\x1b[200~...\x1b[201~`. When not, newlines are backslash-escaped so the shell treats the entire paste as a single command continuation rather than executing on each newline.
+Paste text is sent to PTY panes via `encode_paste_payload` in `src/pane.rs`. Line endings are first normalized (`\r\n`/`\r` → `\n`) in both paths so stray Windows carriage returns aren't interpreted as Enter by the inner app (e.g. Claude submitting on the first line). When the pane has bracketed paste mode enabled (`InputState::bracketed_paste`), the normalized text is wrapped in `\x1b[200~...\x1b[201~`. When not, newlines are backslash-escaped so the shell treats the entire paste as a single command continuation rather than executing on each newline.
 
 ## Dynamic agent label CWD (Windows)
 
