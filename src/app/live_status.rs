@@ -141,14 +141,15 @@ impl AppState {
             };
             terminal.live_status = read_live_status_for_session(&home, &id);
             // The statusLine payload carries the live `session_name` (set via
-            // `/rename`). When a payload exists it is authoritative for the
-            // current session: mirror its name into the label, clearing any
-            // stale title left over from a previous (closed) session that has
-            // since been replaced by a new, unnamed one.
-            if let Some(status) = terminal.live_status.as_ref() {
-                let name = status.session_name.clone();
-                terminal.set_session_title(name);
-            }
+            // `/rename`). Mirror it into the label, and clear whenever no name
+            // comes back — no payload (e.g. just after `/clear` starts a fresh
+            // session) or a payload without a name — so the label reverts to the
+            // CWD folder rather than keeping a stale title from a prior session.
+            let name = terminal
+                .live_status
+                .as_ref()
+                .and_then(|s| s.session_name.clone());
+            terminal.set_session_title(name);
         }
     }
 }
@@ -264,6 +265,41 @@ mod tests {
             Some(1),
         );
         term.set_session_title(Some("testing123".into())); // stale from the prior session
+        let tid = term.id.clone();
+        state.terminals.insert(tid.clone(), term);
+
+        state.refresh_agent_live_statuses();
+
+        assert_eq!(state.terminals.get(&tid).unwrap().session_title, None);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn refresh_clears_stale_title_when_no_payload() {
+        let home = std::env::temp_dir().join(format!(
+            "herdr-refresh-nopayload-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        // projects dir exists but contains no yaml for this session (e.g. just
+        // after /clear started a fresh session).
+        std::fs::create_dir_all(home.join(".claude").join("projects")).unwrap();
+
+        unsafe {
+            std::env::set_var("USERPROFILE", &home);
+        }
+
+        let mut state = AppState::test_new();
+        let mut term =
+            crate::terminal::TerminalState::new(crate::terminal::TerminalId::alloc(), "/tmp".into());
+        term.set_agent_session_ref(
+            "herdr:claude".into(),
+            "claude".into(),
+            crate::agent_resume::AgentSessionRef::id("cleared-sess"),
+            Some(1),
+        );
+        term.set_session_title(Some("stale-name".into()));
         let tid = term.id.clone();
         state.terminals.insert(tid.clone(), term);
 
