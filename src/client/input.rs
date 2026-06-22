@@ -116,17 +116,38 @@ fn windows_stdin_reader_loop(
 ) {
     let mut framer = crate::raw_input::RawInputFramer::default();
     let mut raw_sequence_pending = false;
+    let mut pending_ticks: u32 = 0;
+    // After ~5 s with no end marker, abandon the incomplete bracketed paste.
+    const MAX_PENDING_TICKS: u32 = 500;
 
     while !should_quit.load(Ordering::Acquire) {
         match crossterm::event::poll(Duration::from_millis(10)) {
-            Ok(true) => {}
+            Ok(true) => {
+                pending_ticks = 0;
+            }
             Ok(false) => {
                 if raw_sequence_pending {
-                    tracing::debug!("windows input raw sequence timed out; flushing");
-                    if !send_windows_raw_events(framer.flush_timeout(), &event_tx) {
+                    let flushed = framer.flush_timeout();
+                    let still_pending = framer.has_pending_input();
+                    if !send_windows_raw_events(flushed, &event_tx) {
                         return;
                     }
-                    raw_sequence_pending = false;
+                    if still_pending {
+                        // Framer is still waiting for the rest of a sequence (e.g. a large
+                        // bracketed paste delivered in multiple chunks).  Keep routing input
+                        // through the framer so the sequence can complete.
+                        pending_ticks += 1;
+                        if pending_ticks >= MAX_PENDING_TICKS {
+                            tracing::warn!("windows input bracketed paste timed out; abandoning");
+                            framer.clear_pending_input();
+                            raw_sequence_pending = false;
+                            pending_ticks = 0;
+                        }
+                    } else {
+                        tracing::debug!("windows input raw sequence timed out; flushed");
+                        raw_sequence_pending = false;
+                        pending_ticks = 0;
+                    }
                 }
                 continue;
             }

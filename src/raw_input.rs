@@ -146,6 +146,10 @@ impl RawInputFramer {
         Self::events_from_chunks(self.byte_framer.flush_timeout())
     }
 
+    pub(crate) fn clear_pending_input(&mut self) {
+        self.byte_framer.clear_pending_input();
+    }
+
     fn events_from_chunks(chunks: Vec<Vec<u8>>) -> Vec<RawInputEvent> {
         chunks
             .into_iter()
@@ -196,6 +200,10 @@ impl RawInputByteFramer {
 
     pub(crate) fn has_pending_input(&self) -> bool {
         !self.buffer.is_empty()
+    }
+
+    pub(crate) fn clear_pending_input(&mut self) {
+        self.buffer.clear();
     }
 
     pub(crate) fn flush_timeout(&mut self) -> Vec<Vec<u8>> {
