@@ -247,6 +247,13 @@ fn windows_key_raw_bytes(
             bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
             Some(bytes)
         }
+        // Inside an in-flight raw sequence (e.g. a bracketed paste being
+        // reassembled from char-by-char console events), newlines and tabs
+        // surface as Enter/Tab key codes. Feed them back as raw bytes so they
+        // stay part of the paste payload instead of interrupting it and
+        // reaching the pane as a literal Enter (submitting in Claude).
+        KeyCode::Enter if raw_sequence_pending => Some(vec![b'\r']),
+        KeyCode::Tab if raw_sequence_pending => Some(vec![b'\t']),
         _ => None,
     }
 }
@@ -431,6 +438,70 @@ mod windows_tests {
             windows_key_raw_bytes(&event, false).as_deref(),
             Some(b"I".as_slice())
         );
+    }
+
+    #[test]
+    fn windows_enter_inside_pending_sequence_stays_in_paste() {
+        // While a bracketed paste is being reassembled char-by-char, a newline
+        // surfaces as KeyCode::Enter and must be fed back as a raw byte instead
+        // of interrupting the sequence (which would submit in Claude).
+        let enter = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert_eq!(
+            windows_key_raw_bytes(&enter, true).as_deref(),
+            Some(b"\r".as_slice())
+        );
+        // Outside a pending sequence, Enter is a normal semantic key, not raw.
+        assert_eq!(windows_key_raw_bytes(&enter, false), None);
+
+        let tab = Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()));
+        assert_eq!(
+            windows_key_raw_bytes(&tab, true).as_deref(),
+            Some(b"\t".as_slice())
+        );
+        assert_eq!(windows_key_raw_bytes(&tab, false), None);
+    }
+
+    #[test]
+    fn windows_bracketed_paste_with_newline_reassembles_to_single_paste() {
+        // Simulate the console delivering "\x1b[200~ab<Enter>cd\x1b[201~" as the
+        // discrete key events herdr sees, and assert the framer yields one Paste.
+        let mut framer = crate::raw_input::RawInputFramer::default();
+        let mut pending = false;
+        let mut events = Vec::new();
+
+        let sequence = [
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::empty())),
+        ];
+
+        for event in sequence {
+            let bytes =
+                windows_key_raw_bytes(&event, pending).expect("paste bytes route through framer");
+            let produced = framer.push(&bytes);
+            pending = produced.is_empty();
+            events.extend(produced);
+        }
+
+        assert_eq!(events.len(), 1);
+        let crate::raw_input::RawInputEvent::Paste(text) = &events[0] else {
+            panic!("expected a single Paste event");
+        };
+        assert_eq!(text, "ab\rcd");
     }
 
     #[test]
