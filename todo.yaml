@@ -7,4 +7,4 @@ todos:
     done: true
   - id: 3
     title: Right now if we put large amounts of text into Claude we need to backspace all of it. THere has to be a better way than this. Such as making it where highlighting and copying doesnt clear the highlight and you can press delete to delete the highlighted text. Right now when you highlight text immediatly after letting go the highlight is lost and the contents are sent to the clip board. Instead the highlighted test should remain allowing the text to be manipulated either by deleting or copying with Ctrl+C. Even after changing it to be like this I would expect the copy notification that currently displaces, still does so when pressing copy.
-    done: false
+    done: true

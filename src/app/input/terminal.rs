@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use tracing::{debug, warn};
 
 use crate::{
@@ -17,22 +17,87 @@ fn is_modifier_only_key(code: &KeyCode) -> bool {
     matches!(code, KeyCode::Modifier(_))
 }
 
+/// Ctrl+C copies a visible selection instead of sending an interrupt.
+fn is_copy_selection_key(key: &KeyEvent) -> bool {
+    key.kind != KeyEventKind::Release
+        && key.code == KeyCode::Char('c')
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+        && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
+/// Delete/Backspace removes a visible selection instead of editing at the cursor.
+fn is_delete_selection_key(key: &KeyEvent) -> bool {
+    key.kind != KeyEventKind::Release
+        && matches!(key.code, KeyCode::Delete | KeyCode::Backspace)
+        && key.modifiers.is_empty()
+}
+
 impl App {
     pub(crate) fn handle_terminal_key_headless(&mut self, key: TerminalKey) {
-        let Some(input) = self.prepare_terminal_key_forward(key) else {
-            return;
-        };
-        if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
-            let _ = runtime.try_send_bytes(input.bytes);
+        if let Some(input) = self.prepare_terminal_key_forward(key) {
+            if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
+                let _ = runtime.try_send_bytes(input.bytes);
+            }
+        }
+        self.forward_pending_clipboard_write();
+    }
+
+    /// Queue a pending clipboard write (e.g. from a Ctrl+C selection copy) so
+    /// it is written to the system clipboard and shows the copy notification.
+    fn forward_pending_clipboard_write(&mut self) {
+        if let Some(content) = self.state.request_clipboard_write.take() {
+            if self
+                .event_tx
+                .try_send(crate::events::AppEvent::ClipboardWrite { content })
+                .is_err()
+            {
+                tracing::warn!("failed to queue clipboard write event");
+            }
         }
     }
 
     fn prepare_terminal_key_forward(&mut self, key: TerminalKey) -> Option<PreparedPaneInput> {
+        let key_event = key.as_key_event();
+
+        // A finalized drag selection stays highlighted after release. Ctrl+C
+        // copies it and Delete/Backspace removes it, before the normal
+        // clear-on-keypress behavior below wipes the highlight.
+        if self.state.has_visible_selection() {
+            if is_copy_selection_key(&key_event) {
+                self.state.copy_visible_selection(&self.terminal_runtimes);
+                self.state.update_dismissed = true;
+                return None;
+            }
+            if is_delete_selection_key(&key_event) {
+                let bytes = self
+                    .state
+                    .delete_visible_selection_bytes(&self.terminal_runtimes);
+                self.state.clear_selection();
+                self.selection_autoscroll_deadline = None;
+                self.state.update_dismissed = true;
+                if bytes.is_empty() {
+                    return None;
+                }
+                let ws_idx = self.state.active?;
+                let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
+                if let Some(rt) = self.state.runtime_for_pane_in_workspace(
+                    &self.terminal_runtimes,
+                    ws_idx,
+                    pane_id,
+                ) {
+                    rt.scroll_reset();
+                }
+                return Some(PreparedPaneInput {
+                    ws_idx,
+                    pane_id,
+                    bytes: Bytes::from(bytes),
+                });
+            }
+        }
+
         self.state.clear_selection();
         self.selection_autoscroll_deadline = None;
         self.state.update_dismissed = true;
-
-        let key_event = key.as_key_event();
 
         if let Some(action) = super::terminal_direct_navigation_action(&self.state, key) {
             debug!(
@@ -183,12 +248,12 @@ impl App {
     }
 
     pub(super) async fn handle_terminal_key(&mut self, key: TerminalKey) {
-        let Some(input) = self.prepare_terminal_key_forward(key) else {
-            return;
-        };
-        if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
-            let _ = runtime.send_bytes(input.bytes).await;
+        if let Some(input) = self.prepare_terminal_key_forward(key) {
+            if let Some(runtime) = self.lookup_runtime_sender(input.ws_idx, input.pane_id) {
+                let _ = runtime.send_bytes(input.bytes).await;
+            }
         }
+        self.forward_pending_clipboard_write();
     }
 }
 
@@ -367,30 +432,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn releasing_dragged_selection_clears_highlight_after_copy() {
-        let mut app = app_for_mouse_test();
-        let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
-        let info = pane_infos[0].clone();
-        ws.insert_test_runtime(
-            pane_id,
-            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
-                info.inner_rect.width,
-                info.inner_rect.height,
-                16 * 1024,
-                &numbered_lines_bytes(64),
-            ),
-        );
-
-        app.state.workspaces = vec![ws];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.view.pane_infos = pane_infos;
-
+    async fn releasing_dragged_selection_keeps_highlight_without_copying() {
+        let (mut app, info) = app_with_screen_bytes(b"alpha beta");
         let row = info.inner_rect.y;
-        let start_col = info.inner_rect.x + 1;
+        let start_col = info.inner_rect.x;
         let end_col = info.inner_rect.x + 4;
 
         app.handle_mouse(mouse(
@@ -402,6 +447,59 @@ mod tests {
         assert!(app.state.selection.is_some());
 
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
+
+        // Highlight stays visible and nothing was copied on release.
+        assert_visible_selection(&app);
+        assert!(app.event_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn ctrl_c_copies_visible_selection_and_keeps_highlight() {
+        let (mut app, info) = app_with_screen_bytes(b"alpha beta");
+        let row = info.inner_rect.y;
+        let start_col = info.inner_rect.x;
+        let end_col = info.inner_rect.x + 4;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            start_col,
+            row,
+        ));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), end_col, row));
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
+        assert!(app.event_rx.try_recv().is_err());
+
+        app.handle_terminal_key(TerminalKey::new(KeyCode::Char('c'), KeyModifiers::CONTROL))
+            .await;
+
+        assert_eq!(clipboard_write_content(&mut app), b"alpha");
+        assert_visible_selection(&app);
+    }
+
+    #[tokio::test]
+    async fn delete_removes_visible_selection() {
+        let (mut app, info) = app_with_screen_bytes(b"alpha beta");
+        let row = info.inner_rect.y;
+        let start_col = info.inner_rect.x;
+        let end_col = info.inner_rect.x + 4;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            start_col,
+            row,
+        ));
+        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), end_col, row));
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
+
+        // One backspace per selected character ("alpha" => 5).
+        assert_eq!(
+            app.state
+                .delete_visible_selection_bytes(&app.terminal_runtimes),
+            vec![0x7f; 5]
+        );
+
+        app.handle_terminal_key(TerminalKey::new(KeyCode::Delete, KeyModifiers::empty()))
+            .await;
 
         assert!(app.state.selection.is_none());
     }
@@ -425,7 +523,8 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
         assert!(app.last_pane_click.is_none());
-        assert_eq!(clipboard_write_content(&mut app), b"alpha");
+        // Release keeps the highlight without copying.
+        assert!(app.event_rx.try_recv().is_err());
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),

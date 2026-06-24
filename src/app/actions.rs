@@ -1874,6 +1874,57 @@ impl AppState {
         self.selection_autoscroll = None;
     }
 
+    /// Whether there is a selection whose highlight is currently visible.
+    pub(crate) fn has_visible_selection(&self) -> bool {
+        self.selection
+            .as_ref()
+            .is_some_and(crate::selection::Selection::is_visible)
+    }
+
+    /// Extract the text covered by the current visible selection, if any.
+    fn visible_selection_text(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Option<String> {
+        let sel = self.selection.as_ref()?;
+        if !sel.is_visible() {
+            return None;
+        }
+        let ws_idx = self
+            .active
+            .filter(|idx| self.workspaces.get(*idx).is_some())?;
+        self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, sel.pane_id)
+            .and_then(|rt| rt.extract_selection(sel))
+    }
+
+    /// Copy the visible selection to the clipboard while keeping the
+    /// highlight, so the same text can also be deleted afterwards.
+    pub(crate) fn copy_visible_selection(
+        &mut self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> bool {
+        match self.visible_selection_text(terminal_runtimes) {
+            Some(text) if !text.is_empty() => {
+                self.request_clipboard_write = Some(text.into_bytes());
+                info!("copied selection to clipboard");
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Bytes that delete the visible selection from the focused pane: one
+    /// backspace per selected character. Empty when nothing is selected.
+    pub(crate) fn delete_visible_selection_bytes(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<u8> {
+        match self.visible_selection_text(terminal_runtimes) {
+            Some(text) => vec![0x7f; text.chars().count()],
+            None => Vec::new(),
+        }
+    }
+
     pub(crate) fn stop_selection_autoscroll_state(&mut self) {
         self.selection_autoscroll = None;
     }

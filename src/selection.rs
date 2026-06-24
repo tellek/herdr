@@ -4,7 +4,9 @@
 //!
 //!   MouseDown in pane → Anchor recorded (no visual yet)
 //!   MouseDrag         → Selection becomes active, cells highlighted
-//!   MouseUp           → Text extracted, copied via OSC 52, highlight stays
+//!   MouseUp           → Selection finalized, highlight stays (no copy)
+//!   Ctrl+C            → Selected text copied, highlight stays
+//!   Delete/Backspace  → Selected text deleted from pane, highlight cleared
 //!   Next click / key  → Selection cleared
 //!
 //! Double-click copy also briefly highlights the selected word.
@@ -157,11 +159,6 @@ impl Selection {
     /// Whether this selection should be rendered (highlight visible).
     pub fn is_visible(&self) -> bool {
         self.phase == Phase::Dragging || self.phase == Phase::Done
-    }
-
-    /// Whether this selection was already finalized and copied.
-    pub fn is_done(&self) -> bool {
-        self.phase == Phase::Done
     }
 
     /// Whether the user just clicked without dragging (not a selection).
