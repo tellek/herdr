@@ -4,7 +4,7 @@ todos:
     done: true
   - id: 2
     title: We are still having an issue where pasting large clipboard text into a claude session in a terminal pane presses return on the 1st new line and then doesnt on the others. When pasting it should NEVER treat any of it as a hard return. It should add all text without submitting to claude. Pressing enter is the only thing that should ever submit in a claude session. The behavior I expect is that no text is submitted in claude unless the enter key is physically pressed, and shift+enter creates a new line in the text about to be submitted in claude.
-    done: false
+    done: true
   - id: 3
     title: Right now if we put large amounts of text into Claude we need to backspace all of it. THere has to be a better way than this. Such as making it where highlighting and copying doesnt clear the highlight and you can press delete to delete the highlighted text. Right now when you highlight text immediatly after letting go the highlight is lost and the contents are sent to the clip board. Instead the highlighted test should remain allowing the text to be manipulated either by deleting or copying with Ctrl+C. Even after changing it to be like this I would expect the copy notification that currently displaces, still does so when pressing copy.
     done: false

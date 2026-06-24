@@ -76,6 +76,10 @@ Do not add large agent-specific full-screen fixture suites for routine manifest 
 
 The bottom row of the expanded sidebar (`sidebar.y + sidebar.height - 1`) is a combined footer row shared by the menu label and the `«` collapse toggle. The toggle sits at column `sidebar.x + sidebar.width - 2` (just left of the `│` separator). When `mouse_capture` is enabled, the `menu` label is rendered directly to the left of the toggle on the same row. `global_launcher_rect()` and `agent_panel_rect()` both reserve exactly 1 row for this footer (not 2) regardless of `mouse_capture`.
 
+## Paste handling
+
+`encode_paste_payload` (`src/pane.rs`) normalizes `\r\n`/`\r` → `\n`, then wraps in `\x1b[200~…\x1b[201~` when the pane has bracketed paste enabled (`InputState::bracketed_paste`) or backslash-escapes newlines otherwise. On Windows the paste arrives one console event at a time, so `windows_stdin_reader_loop` (`src/client/input.rs`) reassembles the bracketed-paste byte stream in `RawInputFramer` while `raw_sequence_pending` is set. Pasted newlines/tabs surface as `KeyCode::Enter`/`KeyCode::Tab`; `windows_key_raw_bytes` returns raw `\r`/`\t` for those **only while a sequence is pending**, so they stay inside the paste instead of interrupting it and reaching the pane as a literal Enter (the bug where Claude submitted on the first pasted line). Outside a pending sequence Enter/Tab stay normal semantic keys.
+
 ## Dynamic agent label CWD (Windows)
 
 `PaneRuntime` holds a `foreground_pid: Arc<AtomicU32>` (default 0) shared with the detection task. The detection task sets it to the agent subprocess PID when it identifies a foreground agent process, or 0/shell-PID when the shell is foreground. On Windows, `PaneRuntime::cwd()` checks `foreground_pid` first — if it differs from `child_pid`, it calls `platform::process_cwd(foreground_pid)` to return the agent's actual CWD, making the sidebar agent label reflect where Claude is working rather than where the shell started.
