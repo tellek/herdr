@@ -743,11 +743,11 @@ impl AppState {
             }
 
             MouseEventKind::Up(MouseButton::Left) => {
-                // Mouse-up either finishes a drag selection or releases after a
-                // double-click copy; the latter is already copied.
+                // Mouse-up finishes a drag selection but keeps the highlight
+                // visible. Copying (Ctrl+C) and deleting (Delete) happen via
+                // keyboard so the selection can be reused before it is cleared.
                 if let Some(selection) = self.selection.as_ref() {
                     let was_click = selection.was_just_click();
-                    let was_already_copied = selection.is_done();
 
                     self.workspace_press = None;
                     self.tab_press = None;
@@ -755,8 +755,8 @@ impl AppState {
                     self.selection_autoscroll = None;
                     if was_click {
                         self.selection = None;
-                    } else if !was_already_copied {
-                        self.copy_selection(terminal_runtimes);
+                    } else if let Some(sel) = self.selection.as_mut() {
+                        sel.finish();
                     }
                     return None;
                 }
