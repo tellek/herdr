@@ -145,6 +145,12 @@ impl AppState {
         };
         for terminal in self.terminals.values_mut() {
             let Some(id) = terminal.claude_session_id().map(str::to_owned) else {
+                // No Claude session for this pane (e.g. Claude was closed, so the
+                // detected agent disappeared and the persisted session was
+                // cleared). Drop any stale live status and session title so the
+                // statusline and sidebar label revert to the CWD folder.
+                terminal.live_status = None;
+                terminal.set_session_title(None);
                 continue;
             };
             terminal.live_status = read_live_status_for_session(&home, &id);
@@ -226,7 +232,10 @@ mod tests {
 
     #[test]
     fn parses_session_name() {
-        let s = parse_live_status(r#"{ "model": { "display_name": "Opus 4.8" }, "session_name": "names" }"#).unwrap();
+        let s = parse_live_status(
+            r#"{ "model": { "display_name": "Opus 4.8" }, "session_name": "names" }"#,
+        )
+        .unwrap();
         assert_eq!(s.session_name.as_deref(), Some("names"));
     }
 
@@ -271,8 +280,10 @@ mod tests {
         }
 
         let mut state = AppState::test_new();
-        let mut term =
-            crate::terminal::TerminalState::new(crate::terminal::TerminalId::alloc(), "/tmp".into());
+        let mut term = crate::terminal::TerminalState::new(
+            crate::terminal::TerminalId::alloc(),
+            "/tmp".into(),
+        );
         term.set_agent_session_ref(
             "herdr:claude".into(),
             "claude".into(),
@@ -306,8 +317,10 @@ mod tests {
         }
 
         let mut state = AppState::test_new();
-        let mut term =
-            crate::terminal::TerminalState::new(crate::terminal::TerminalId::alloc(), "/tmp".into());
+        let mut term = crate::terminal::TerminalState::new(
+            crate::terminal::TerminalId::alloc(),
+            "/tmp".into(),
+        );
         term.set_agent_session_ref(
             "herdr:claude".into(),
             "claude".into(),
@@ -321,6 +334,41 @@ mod tests {
         state.refresh_agent_live_statuses();
 
         assert_eq!(state.terminals.get(&tid).unwrap().session_title, None);
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn refresh_clears_live_status_when_no_claude_session() {
+        let home = std::env::temp_dir().join(format!(
+            "herdr-refresh-closed-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(home.join(".claude").join("projects")).unwrap();
+
+        unsafe {
+            std::env::set_var("USERPROFILE", &home);
+        }
+
+        let mut state = AppState::test_new();
+        // A pane that previously hosted Claude: it has a stale live_status and
+        // session_title but no persisted Claude session (Claude was closed).
+        let mut term = crate::terminal::TerminalState::new(
+            crate::terminal::TerminalId::alloc(),
+            "/tmp".into(),
+        );
+        term.live_status = parse_live_status(r#"{"model":{"display_name":"Opus 4.8"}}"#);
+        term.set_session_title(Some("stale-name".into()));
+        assert!(term.claude_session_id().is_none());
+        let tid = term.id.clone();
+        state.terminals.insert(tid.clone(), term);
+
+        state.refresh_agent_live_statuses();
+
+        let term = state.terminals.get(&tid).unwrap();
+        assert_eq!(term.live_status, None);
+        assert_eq!(term.session_title, None);
 
         let _ = std::fs::remove_dir_all(&home);
     }
