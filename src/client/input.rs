@@ -505,6 +505,66 @@ mod windows_tests {
     }
 
     #[test]
+    fn windows_multiline_paste_reassembles_with_no_enter_keys_escaping() {
+        // With ENABLE_VIRTUAL_TERMINAL_INPUT enabled the host delivers the
+        // bracketed-paste markers as a discrete key-event stream. A paste with
+        // MULTIPLE newlines must reassemble into exactly one Paste carrying every
+        // newline, and NO event may fall through as a semantic Enter (which would
+        // submit). This guards the "a newline mid-block submits" report.
+        let mut framer = crate::raw_input::RawInputFramer::default();
+        let mut pending = false;
+        let mut events = Vec::new();
+
+        // "\x1b[200~a<NL>b<NL>c\x1b[201~"
+        let sequence = [
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::empty())),
+            Event::Key(KeyEvent::new(KeyCode::Char('~'), KeyModifiers::empty())),
+        ];
+
+        for event in sequence {
+            // Every event in the marker stream must route through the framer; none
+            // may escape to the semantic-key path (which is where a bare Enter
+            // would submit).
+            let bytes = windows_key_raw_bytes(&event, pending)
+                .expect("every paste-stream event routes through the framer");
+            let produced = framer.push(&bytes);
+            pending = produced.is_empty();
+            events.extend(produced);
+        }
+
+        assert_eq!(events.len(), 1, "multi-line paste must be one event");
+        let raw = events.into_iter().next().unwrap();
+        let crate::raw_input::RawInputEvent::Paste(text) = &raw else {
+            panic!("expected a single Paste event");
+        };
+        assert_eq!(text, "a\rb\rc");
+
+        // And it converts to a wire Paste, not a Key, so the server brackets it.
+        let wire = windows_client_input_event_from_raw(raw).expect("paste converts");
+        assert_eq!(
+            wire,
+            crate::protocol::ClientInputEvent::Paste {
+                text: "a\rb\rc".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn windows_eot_control_char_normalizes_to_ctrl_d() {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('\u{4}'), KeyModifiers::empty()));
         let bytes = windows_key_raw_bytes(&event, false).expect("eot routes through raw framer");

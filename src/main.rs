@@ -710,6 +710,9 @@ fn main() -> io::Result<()> {
 
     let result = rt.block_on(async {
         let mut terminal = ratatui::init();
+        // Enable VT console input so pasted bracketed-paste markers reach the
+        // input reader instead of being stripped (Windows-only; no-op elsewhere).
+        let previous_console_input_mode = crate::platform::enable_console_vt_input();
         if config.ui.mouse_capture {
             execute!(io::stdout(), EnableMouseCapture)?;
         } else {
@@ -755,6 +758,7 @@ fn main() -> io::Result<()> {
             DisableMouseCapture
         )?;
         set_host_color_scheme_reports(false)?;
+        crate::platform::restore_console_input_mode(previous_console_input_mode);
         ratatui::restore();
 
         // Drop app (and all workspaces/panes) before runtime shuts down

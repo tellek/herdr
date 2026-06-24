@@ -14,6 +14,10 @@ use windows_sys::{
             UNICODE_STRING,
         },
         System::{
+            Console::{
+                GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE,
+                ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+            },
             Diagnostics::{
                 Debug::ReadProcessMemory,
                 ToolHelp::{
@@ -45,6 +49,54 @@ struct WindowsProcessEntry {
 }
 
 pub fn raise_server_nofile_limit() {}
+
+/// Enable `ENABLE_VIRTUAL_TERMINAL_INPUT` on the console input handle.
+///
+/// Without this flag the Windows console strips the bracketed-paste markers
+/// (`\x1b[200~`/`\x1b[201~`) from the input stream and delivers a paste as a
+/// burst of individual key events, so a pasted newline is indistinguishable
+/// from a pressed Enter and the first one submits. With it enabled, the markers
+/// flow through and the existing input reframer reassembles the paste into a
+/// single paste event that is never submitted.
+///
+/// Returns the previous console mode so it can be restored on teardown, or
+/// `None` if the mode was already set, could not be read, or could not be
+/// changed.
+pub fn enable_console_vt_input() -> Option<u32> {
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return None;
+        }
+        let mut mode: CONSOLE_MODE = 0;
+        if GetConsoleMode(handle, &mut mode) == 0 {
+            return None;
+        }
+        if mode & ENABLE_VIRTUAL_TERMINAL_INPUT != 0 {
+            return None;
+        }
+        if SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_INPUT) == 0 {
+            return None;
+        }
+        Some(mode)
+    }
+}
+
+/// Restore a console input mode previously returned by [`enable_console_vt_input`].
+///
+/// Must run before raw mode is disabled so the console is not left in raw mode.
+pub fn restore_console_input_mode(previous: Option<u32>) {
+    let Some(mode) = previous else {
+        return;
+    };
+    unsafe {
+        let handle = GetStdHandle(STD_INPUT_HANDLE);
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return;
+        }
+        let _ = SetConsoleMode(handle, mode);
+    }
+}
 
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     let entries = snapshot_processes();

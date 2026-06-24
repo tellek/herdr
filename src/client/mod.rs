@@ -329,6 +329,10 @@ fn setup_terminal_with_capabilities(
     mouse_capture: bool,
 ) -> io::Result<TerminalGuard> {
     ratatui::init();
+    // Enable VT console input so the host delivers bracketed-paste markers; the
+    // input reframer then turns a paste into one paste event instead of letting
+    // its newlines submit (Windows-only; no-op elsewhere).
+    let previous_console_input_mode = crate::platform::enable_console_vt_input();
     let host_color_scheme_reports =
         should_enable_host_color_scheme_reports(enable_client_protocols);
 
@@ -371,6 +375,7 @@ fn setup_terminal_with_capabilities(
     Ok(TerminalGuard {
         reset_modify_other_keys: modify_other_keys_mode.is_some(),
         reset_host_color_scheme_reports: host_color_scheme_reports,
+        previous_console_input_mode,
     })
 }
 
@@ -382,6 +387,8 @@ fn should_enable_host_color_scheme_reports(enable_client_protocols: bool) -> boo
 struct TerminalGuard {
     reset_modify_other_keys: bool,
     reset_host_color_scheme_reports: bool,
+    /// Console input mode to restore on teardown, if VT input was enabled.
+    previous_console_input_mode: Option<u32>,
 }
 
 fn write_host_color_scheme_report_mode(
@@ -424,7 +431,11 @@ fn set_mouse_capture(enabled: bool) -> io::Result<()> {
     }
 }
 
-fn restore_terminal_state(reset_modify_other_keys: bool, reset_host_color_scheme_reports: bool) {
+fn restore_terminal_state(
+    reset_modify_other_keys: bool,
+    reset_host_color_scheme_reports: bool,
+    previous_console_input_mode: Option<u32>,
+) {
     let _ = clear_received_kitty_graphics(&mut io::stdout());
 
     // Reset modifyOtherKeys if we enabled it.
@@ -440,6 +451,9 @@ fn restore_terminal_state(reset_modify_other_keys: bool, reset_host_color_scheme
         DisableBracketedPaste,
         DisableMouseCapture
     );
+    // Restore the console input mode before raw mode is cleared so the console
+    // is not left in raw mode.
+    crate::platform::restore_console_input_mode(previous_console_input_mode);
     ratatui::restore();
     let _ = write_terminal_restore_postlude(&mut io::stdout(), reset_host_color_scheme_reports);
 }
@@ -472,6 +486,7 @@ impl Drop for TerminalGuard {
         restore_terminal_state(
             self.reset_modify_other_keys,
             self.reset_host_color_scheme_reports,
+            self.previous_console_input_mode,
         );
     }
 }
@@ -745,11 +760,13 @@ fn run_client_with_mode(
     // Install a panic hook to restore the terminal on panic (same as monolithic).
     let panic_resets_modify_other_keys = terminal_guard.reset_modify_other_keys;
     let panic_resets_host_color_scheme_reports = terminal_guard.reset_host_color_scheme_reports;
+    let panic_previous_console_input_mode = terminal_guard.previous_console_input_mode;
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         restore_terminal_state(
             panic_resets_modify_other_keys,
             panic_resets_host_color_scheme_reports,
+            panic_previous_console_input_mode,
         );
         original_hook(info);
     }));
