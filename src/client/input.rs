@@ -119,6 +119,11 @@ fn windows_stdin_reader_loop(
     let mut pending_ticks: u32 = 0;
     // After ~5 s with no end marker, abandon the incomplete bracketed paste.
     const MAX_PENDING_TICKS: u32 = 500;
+    // On Windows a paste is delivered as a rapid burst of individual Char/Enter key
+    // events (no bracketed-paste markers), so an embedded newline is an Enter key
+    // that submits in the inner app. This accumulator coalesces such a burst into a
+    // single Paste event the server brackets, so newlines stay text.
+    let mut paste_burst = PasteBurstAccumulator::default();
 
     while !should_quit.load(Ordering::Acquire) {
         match crossterm::event::poll(Duration::from_millis(10)) {
@@ -126,6 +131,15 @@ fn windows_stdin_reader_loop(
                 pending_ticks = 0;
             }
             Ok(false) => {
+                // No event is queued: the burst (if any) has ended. Finalize it.
+                let flushed = paste_burst.finish();
+                if !flushed.is_empty()
+                    && event_tx
+                        .blocking_send(ClientLoopEvent::StdinEvents(flushed))
+                        .is_err()
+                {
+                    return;
+                }
                 if raw_sequence_pending {
                     let flushed = framer.flush_timeout();
                     let still_pending = framer.has_pending_input();
@@ -181,6 +195,21 @@ fn windows_stdin_reader_loop(
             raw_sequence_pending = false;
         }
 
+        // Feed the event to the paste-burst accumulator. It may flush a finalized
+        // burst (events to forward now) and tells us whether the current event was
+        // absorbed into a new burst or should fall through to normal handling.
+        let outcome = paste_burst.observe(&event);
+        if !outcome.flush.is_empty()
+            && event_tx
+                .blocking_send(ClientLoopEvent::StdinEvents(outcome.flush))
+                .is_err()
+        {
+            return;
+        }
+        if outcome.absorbed {
+            continue;
+        }
+
         if windows_event_is_control_key(&event) {
             tracing::debug!(event = ?event, "windows control key forwarded as semantic input");
         }
@@ -211,6 +240,106 @@ fn windows_event_is_control_key(event: &crossterm::event::Event) -> bool {
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 || matches!(key.code, crossterm::event::KeyCode::Char(ch) if ch.is_control())
     )
+}
+
+/// Result of feeding one event to the [`PasteBurstAccumulator`].
+#[cfg(windows)]
+#[derive(Default)]
+struct PasteBurstOutcome {
+    /// Finalized events to forward to the server right now (a coalesced paste,
+    /// or buffered keystrokes replayed because the run was just normal typing).
+    flush: Vec<crate::protocol::ClientInputEvent>,
+    /// Whether the current event was absorbed into a building burst (so the
+    /// caller must not also forward it through the normal semantic path).
+    absorbed: bool,
+}
+
+/// Coalesces the rapid burst of individual key events Windows produces for a
+/// paste into a single `Paste` event.
+///
+/// On Windows there are no bracketed-paste markers in the input stream: a paste
+/// arrives as many `Char`/`Enter`/`Tab` key presses delivered back-to-back, so an
+/// embedded newline is an `Enter` key that submits in the inner app (e.g. Claude
+/// submits the first line). This buffers consecutive printable key presses and,
+/// when the run ends (an idle poll or a non-text key), emits them as one `Paste`
+/// when the run is paste-shaped (multiple characters spanning a newline). Short
+/// runs and single keys replay unchanged, so normal typing is unaffected.
+#[cfg(windows)]
+#[derive(Default)]
+struct PasteBurstAccumulator {
+    buffer: String,
+}
+
+#[cfg(windows)]
+impl PasteBurstAccumulator {
+    fn observe(&mut self, event: &crossterm::event::Event) -> PasteBurstOutcome {
+        use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
+
+        if let Event::Key(key) = event {
+            // Releases never carry text; ignore them while a burst builds so they
+            // do not split or end it.
+            if key.kind == KeyEventKind::Release {
+                return PasteBurstOutcome {
+                    flush: Vec::new(),
+                    absorbed: !self.buffer.is_empty(),
+                };
+            }
+            let unmodified = (key.modifiers & !KeyModifiers::SHIFT).is_empty();
+            let ch = match key.code {
+                KeyCode::Char(ch) if unmodified && !ch.is_control() => Some(ch),
+                KeyCode::Enter if unmodified => Some('\n'),
+                KeyCode::Tab if unmodified => Some('\t'),
+                _ => None,
+            };
+            if let Some(ch) = ch {
+                self.buffer.push(ch);
+                return PasteBurstOutcome {
+                    flush: Vec::new(),
+                    absorbed: true,
+                };
+            }
+        }
+
+        // A non-text event ends any building run; finalize it, then let the
+        // current event fall through to normal handling.
+        PasteBurstOutcome {
+            flush: self.finish(),
+            absorbed: false,
+        }
+    }
+
+    /// Finalize the buffered run, returning the events to forward.
+    fn finish(&mut self) -> Vec<crate::protocol::ClientInputEvent> {
+        if self.buffer.is_empty() {
+            return Vec::new();
+        }
+        let text = std::mem::take(&mut self.buffer);
+        if text.chars().count() >= 2 && text.contains('\n') {
+            return vec![crate::protocol::ClientInputEvent::Paste { text }];
+        }
+        // Not paste-shaped: replay the buffered characters as the individual key
+        // events they would have been, so normal typing is unchanged.
+        text.chars().map(client_key_for_char).collect()
+    }
+}
+
+/// Build a semantic key event for a buffered character (used when a short run is
+/// replayed as normal typing rather than coalesced into a paste).
+#[cfg(windows)]
+fn client_key_for_char(ch: char) -> crate::protocol::ClientInputEvent {
+    use crossterm::event::KeyCode;
+
+    let code = match ch {
+        '\n' => KeyCode::Enter,
+        '\t' => KeyCode::Tab,
+        other => KeyCode::Char(other),
+    };
+    crate::protocol::ClientInputEvent::Key {
+        code: crate::protocol::ClientKeyCode::from_crossterm(code)
+            .unwrap_or(crate::protocol::ClientKeyCode::Char(ch)),
+        modifiers: 0,
+        kind: crate::protocol::ClientKeyKind::Press,
+    }
 }
 
 #[cfg(windows)]
@@ -603,6 +732,108 @@ mod windows_tests {
                 modifiers: 0,
                 kind: crate::protocol::ClientKeyKind::Press,
             }
+        );
+    }
+
+    fn press(code: KeyCode) -> Event {
+        Event::Key(KeyEvent::new(code, KeyModifiers::empty()))
+    }
+
+    fn feed(
+        acc: &mut PasteBurstAccumulator,
+        events: &[Event],
+    ) -> Vec<crate::protocol::ClientInputEvent> {
+        let mut out = Vec::new();
+        for event in events {
+            let outcome = acc.observe(event);
+            out.extend(outcome.flush);
+        }
+        out.extend(acc.finish());
+        out
+    }
+
+    #[test]
+    fn multiline_burst_coalesces_into_single_paste() {
+        let mut acc = PasteBurstAccumulator::default();
+        let out = feed(
+            &mut acc,
+            &[
+                press(KeyCode::Char('a')),
+                press(KeyCode::Char('b')),
+                press(KeyCode::Enter),
+                press(KeyCode::Char('c')),
+            ],
+        );
+        assert_eq!(
+            out,
+            vec![crate::protocol::ClientInputEvent::Paste {
+                text: "ab\nc".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn lone_enter_is_not_coalesced_and_still_submits() {
+        let mut acc = PasteBurstAccumulator::default();
+        let out = feed(&mut acc, &[press(KeyCode::Enter)]);
+        assert_eq!(
+            out,
+            vec![crate::protocol::ClientInputEvent::Key {
+                code: crate::protocol::ClientKeyCode::Enter,
+                modifiers: 0,
+                kind: crate::protocol::ClientKeyKind::Press,
+            }]
+        );
+    }
+
+    #[test]
+    fn single_line_run_without_newline_replays_as_keys() {
+        let mut acc = PasteBurstAccumulator::default();
+        let out = feed(
+            &mut acc,
+            &[press(KeyCode::Char('h')), press(KeyCode::Char('i'))],
+        );
+        assert_eq!(out.len(), 2);
+        assert!(out
+            .iter()
+            .all(|e| matches!(e, crate::protocol::ClientInputEvent::Key { .. })));
+    }
+
+    #[test]
+    fn non_text_key_ends_burst_and_passes_through() {
+        let mut acc = PasteBurstAccumulator::default();
+        assert!(acc.observe(&press(KeyCode::Char('x'))).absorbed);
+        assert!(acc.observe(&press(KeyCode::Enter)).absorbed);
+        let outcome = acc.observe(&press(KeyCode::Up));
+        assert!(!outcome.absorbed);
+        assert_eq!(
+            outcome.flush,
+            vec![crate::protocol::ClientInputEvent::Paste {
+                text: "x\n".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn release_events_do_not_split_a_burst() {
+        let mut acc = PasteBurstAccumulator::default();
+        let out = feed(
+            &mut acc,
+            &[
+                press(KeyCode::Char('a')),
+                Event::Key(KeyEvent::new_with_kind(
+                    KeyCode::Char('a'),
+                    KeyModifiers::empty(),
+                    crossterm::event::KeyEventKind::Release,
+                )),
+                press(KeyCode::Enter),
+            ],
+        );
+        assert_eq!(
+            out,
+            vec![crate::protocol::ClientInputEvent::Paste {
+                text: "a\n".to_string()
+            }]
         );
     }
 
