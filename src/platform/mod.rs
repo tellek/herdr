@@ -121,6 +121,17 @@ mod fallback;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use fallback::*;
 
+/// Enable VT console input so bracketed-paste markers reach the input reader.
+/// No-op off Windows, where stdin is already a VT byte stream.
+#[cfg(not(windows))]
+pub fn enable_console_vt_input() -> Option<u32> {
+    None
+}
+
+/// Restore a console input mode saved by [`enable_console_vt_input`]. No-op off Windows.
+#[cfg(not(windows))]
+pub fn restore_console_input_mode(_previous: Option<u32>) {}
+
 #[cfg(not(target_os = "macos"))]
 #[derive(Debug)]
 pub(crate) struct InputSourceRestore;
