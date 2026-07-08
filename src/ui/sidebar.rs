@@ -190,48 +190,13 @@ fn truncate_text(text: &str, max_width: usize) -> String {
     format!("{prefix}…")
 }
 
-fn format_agent_panel_primary_label(entry: &AgentPanelEntry, max_width: usize) -> String {
-    let Some(tab_label) = entry.primary_tab_label.as_deref() else {
-        return truncate_text(&entry.primary_label, max_width);
-    };
-
-    let separator = " · ";
-    let separator_width = separator.chars().count();
-    if max_width <= separator_width + 2 {
-        return truncate_text(
-            &format!("{}{}{}", entry.primary_label, separator, tab_label),
-            max_width,
-        );
+/// Rows an agent panel entry occupies: name, optional tab name, status.
+pub(crate) fn agent_panel_entry_height(entry: &AgentPanelEntry) -> u16 {
+    if entry.primary_tab_label.is_some() {
+        3
+    } else {
+        2
     }
-
-    let available = max_width.saturating_sub(separator_width);
-    let min_tab = 4.min(available.saturating_sub(1)).max(1);
-    let preferred_workspace = ((available * 2) / 3).max(1);
-    let mut workspace_budget = preferred_workspace
-        .min(available.saturating_sub(min_tab))
-        .max(1);
-    let mut tab_budget = available.saturating_sub(workspace_budget);
-
-    let workspace_len = entry.primary_label.chars().count();
-    let tab_len = tab_label.chars().count();
-
-    if workspace_len < workspace_budget {
-        let spare = workspace_budget - workspace_len;
-        workspace_budget = workspace_len;
-        tab_budget = (tab_budget + spare).min(available.saturating_sub(workspace_budget));
-    }
-    if tab_len < tab_budget {
-        let spare = tab_budget - tab_len;
-        tab_budget = tab_len;
-        workspace_budget = (workspace_budget + spare).min(available.saturating_sub(tab_budget));
-    }
-
-    format!(
-        "{}{}{}",
-        truncate_text(&entry.primary_label, workspace_budget),
-        separator,
-        truncate_text(tab_label, tab_budget)
-    )
 }
 
 fn workspace_row_height(ws: &crate::workspace::Workspace) -> u16 {
@@ -521,30 +486,34 @@ pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
-fn agent_panel_visible_count(area: Rect) -> usize {
+fn agent_panel_visible_count(app: &AppState, area: Rect, scroll: usize) -> usize {
     let body = agent_panel_body_rect(area, false);
     if body.width == 0 || body.height < 2 {
         return 0;
     }
 
+    let entries = agent_panel_entries(app);
     let mut used_rows = 0u16;
     let mut visible = 0usize;
-    while used_rows.saturating_add(2) <= body.height {
-        used_rows = used_rows.saturating_add(2);
-        visible += 1;
-        if used_rows < body.height {
-            used_rows = used_rows.saturating_add(1);
+    for (idx, entry) in entries.iter().enumerate().skip(scroll) {
+        let is_last = idx + 1 == entries.len();
+        let needed = agent_panel_entry_height(entry).saturating_add(u16::from(!is_last));
+        if used_rows.saturating_add(needed) > body.height {
+            break;
         }
+        used_rows = used_rows.saturating_add(needed);
+        visible += 1;
     }
     visible
 }
 
 pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::pane::ScrollMetrics {
-    let viewport_rows = agent_panel_visible_count(area);
     let total_rows = agent_panel_entries(app).len();
+    let scroll = app.agent_panel_scroll.min(total_rows.saturating_sub(1));
+    let viewport_rows = agent_panel_visible_count(app, area, scroll);
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
-        .saturating_sub(app.agent_panel_scroll)
+        .saturating_sub(scroll)
         .saturating_sub(viewport_rows);
 
     crate::pane::ScrollMetrics {
@@ -1034,7 +1003,7 @@ fn render_agent_detail(
     let mut row_y = body.y;
     let body_bottom = body.y + body.height;
     for detail in details.iter().skip(app.agent_panel_scroll) {
-        if row_y.saturating_add(1) >= body_bottom {
+        if body_bottom.saturating_sub(row_y) < 2 {
             break;
         }
 
@@ -1060,6 +1029,11 @@ fn render_agent_detail(
         } else {
             Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
         };
+        let tab_style = if is_active {
+            Style::default().fg(p.text)
+        } else {
+            Style::default().fg(p.subtext0)
+        };
         let status_style = if is_active {
             Style::default().fg(label_color)
         } else {
@@ -1067,8 +1041,8 @@ fn render_agent_detail(
         };
         let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
 
-        let primary_label =
-            format_agent_panel_primary_label(detail, body.width.saturating_sub(3) as usize);
+        let name_width = body.width.saturating_sub(3) as usize;
+        let primary_label = truncate_text(&detail.primary_label, name_width);
         let name_line = Line::from(vec![
             Span::styled(" ", Style::default()),
             Span::styled(icon, icon_style),
@@ -1080,6 +1054,20 @@ fn render_agent_detail(
             Rect::new(body.x, row_y, body.width, 1),
         );
         row_y += 1;
+
+        if let Some(tab_label) = &detail.primary_tab_label {
+            if body_bottom.saturating_sub(row_y) >= 2 {
+                let tab_line = Line::from(vec![
+                    Span::styled("   ", Style::default()),
+                    Span::styled(truncate_text(tab_label, name_width), tab_style),
+                ]);
+                frame.render_widget(
+                    Paragraph::new(tab_line).style(row_style),
+                    Rect::new(body.x, row_y, body.width, 1),
+                );
+                row_y += 1;
+            }
+        }
 
         let mut status_spans = vec![
             Span::styled("   ", Style::default()),
@@ -1365,8 +1353,8 @@ mod tests {
     }
 
     #[test]
-    fn all_workspaces_primary_label_truncates_workspace_and_tab() {
-        let entry = AgentPanelEntry {
+    fn agent_panel_entry_height_reserves_extra_row_for_tab_name() {
+        let entry_with_tab = AgentPanelEntry {
             ws_idx: 0,
             tab_idx: 0,
             pane_id: crate::layout::PaneId::from_raw(1),
@@ -1379,10 +1367,50 @@ mod tests {
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
         };
+        assert_eq!(agent_panel_entry_height(&entry_with_tab), 3);
 
-        let label = format_agent_panel_primary_label(&entry, 18);
+        let entry_without_tab = AgentPanelEntry {
+            primary_tab_label: None,
+            ..entry_with_tab
+        };
+        assert_eq!(agent_panel_entry_height(&entry_without_tab), 2);
+    }
 
-        assert_eq!(label, "agent-bro… · test…");
+    #[test]
+    fn render_agent_detail_puts_name_tab_and_status_on_separate_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("agent-browser");
+        let tab_idx = ws.test_add_tab(Some("test-escalation"));
+        let pane = ws.tabs[tab_idx].root_pane;
+        app.workspaces = vec![ws];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[tab_idx].panes[&pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+        app.active = Some(0);
+        app.selected = 0;
+
+        let area = Rect::new(0, 0, 26, 20);
+        let mut terminal =
+            Terminal::new(TestBackend::new(26, 20)).expect("test terminal should initialize");
+        let registry = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_agent_detail(&app, &registry, frame, area))
+            .expect("agent detail should render");
+
+        let body = agent_panel_body_rect(area, false);
+        let buffer = terminal.backend().buffer();
+        let row_text = |y: u16| -> String {
+            (0..area.width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<Vec<_>>()
+                .join("")
+        };
+
+        assert!(row_text(body.y).contains("agent-browser"));
+        assert!(row_text(body.y + 1).contains("test-escalation"));
+        assert!(row_text(body.y + 2).contains("claude"));
     }
 
     #[test]

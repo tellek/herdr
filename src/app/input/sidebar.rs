@@ -456,19 +456,21 @@ impl AppState {
             return None;
         }
 
+        let body_bottom = body.y + body.height;
         let mut row_y = body.y;
         for detail in crate::ui::agent_panel_entries(self)
             .into_iter()
             .skip(self.agent_panel_scroll)
         {
-            if row_y.saturating_add(1) >= body.y + body.height {
+            if body_bottom.saturating_sub(row_y) < 2 {
                 break;
             }
-            if row == row_y || row == row_y + 1 {
+            let height = crate::ui::agent_panel_entry_height(&detail).min(body_bottom - row_y);
+            if row >= row_y && row < row_y + height {
                 return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
             }
-            row_y = row_y.saturating_add(2);
-            if row_y < body.y + body.height {
+            row_y = row_y.saturating_add(height);
+            if row_y < body_bottom {
                 row_y = row_y.saturating_add(1);
             }
         }
@@ -682,7 +684,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 5));
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 6));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
