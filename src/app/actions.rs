@@ -2526,6 +2526,11 @@ impl AppState {
                 } else {
                     None
                 };
+                // Only a SessionStart hook call carries session_start_source; later
+                // hook events (PreToolUse/PostToolUse/Stop) also report project_cwd,
+                // but by then it may reflect a subdirectory the agent navigated into.
+                // Trust it only from SessionStart, or when nothing is stored yet.
+                let is_session_start = session_start_source.is_some();
                 let updates: Vec<_> = self
                     .update_terminal_state(pane_id, |terminal| {
                         let mutation = terminal.set_agent_session_ref_for_session_start(
@@ -2538,7 +2543,9 @@ impl AppState {
                         // Store the project CWD so resume always runs from the
                         // directory where the agent was launched (its project root).
                         if let Some(cwd) = project_cwd {
-                            terminal.agent_session_project_cwd = Some(cwd);
+                            if is_session_start || terminal.agent_session_project_cwd.is_none() {
+                                terminal.agent_session_project_cwd = Some(cwd);
+                            }
                         }
                         mutation
                     })
@@ -5692,6 +5699,124 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn agent_session_reported_does_not_overwrite_project_cwd_from_non_session_start_hook() {
+        // The SessionStart hook establishes the project root. Later hook calls
+        // (PreToolUse/PostToolUse/Stop) also report project_cwd, but it may by
+        // then reflect a subdirectory the agent navigated into; it must not
+        // clobber the project root captured at session start.
+        let project_root = std::env::temp_dir().join(format!(
+            "herdr-project-cwd-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let subdir = project_root.join("src");
+
+        let mut state = app_with_workspaces(&["active"]);
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+
+        // SessionStart: captures the project root.
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(1),
+            session_ref: None,
+            session_start_source: Some("startup".into()),
+            project_cwd: Some(project_root.clone()),
+        });
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .agent_session_project_cwd,
+            Some(project_root.clone())
+        );
+
+        // A later hook call (no session_start_source) reports a navigated subdir.
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(2),
+            session_ref: None,
+            session_start_source: None,
+            project_cwd: Some(subdir),
+        });
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .agent_session_project_cwd,
+            Some(project_root),
+            "non-SessionStart hook must not overwrite the stored project root"
+        );
+    }
+
+    #[test]
+    fn agent_session_reported_sets_project_cwd_when_none_stored_even_without_session_start() {
+        // If nothing is stored yet (e.g. herdr restarted mid-session before a
+        // fresh SessionStart), a later hook call should still populate it
+        // rather than leaving resume with no project root at all.
+        let project_root = std::env::temp_dir().join(format!(
+            "herdr-project-cwd-guard-fallback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        let mut state = app_with_workspaces(&["active"]);
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        assert!(state
+            .terminals
+            .get(&terminal_id)
+            .unwrap()
+            .agent_session_project_cwd
+            .is_none());
+
+        state.handle_app_event(AppEvent::AgentSessionReported {
+            pane_id,
+            source: "herdr:claude".into(),
+            agent_label: "claude".into(),
+            seq: Some(1),
+            session_ref: None,
+            session_start_source: None,
+            project_cwd: Some(project_root.clone()),
+        });
+
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .unwrap()
+                .agent_session_project_cwd,
+            Some(project_root)
+        );
     }
 
     #[test]

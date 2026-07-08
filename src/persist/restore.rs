@@ -474,8 +474,10 @@ fn restore_tab(
                 "saved pane cwd does not exist, falling back to HOME"
             );
             let home = std::env::var("HOME")
+                .ok()
+                .or_else(|| std::env::var("USERPROFILE").ok())
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from("/"));
+                .unwrap_or_else(|| PathBuf::from("/"));
             if home.exists() {
                 home
             } else {
