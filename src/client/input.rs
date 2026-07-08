@@ -262,13 +262,23 @@ struct PasteBurstOutcome {
 /// embedded newline is an `Enter` key that submits in the inner app (e.g. Claude
 /// submits the first line). This buffers consecutive printable key presses and,
 /// when the run ends (an idle poll or a non-text key), emits them as one `Paste`
-/// when the run is paste-shaped (multiple characters spanning a newline). Short
-/// runs and single keys replay unchanged, so normal typing is unaffected.
+/// when the run is paste-shaped: multiple characters spanning a newline, or a
+/// long single-line run (a paste with no embedded newline, e.g. a URL or a
+/// single unbroken paragraph, is still a zero-gap burst of many characters and
+/// should not be forwarded as thousands of individual key events). Short runs
+/// and single keys replay unchanged, so normal typing is unaffected.
 #[cfg(windows)]
 #[derive(Default)]
 struct PasteBurstAccumulator {
     buffer: String,
 }
+
+/// A single-line run at or above this length is treated as a paste even
+/// without an embedded newline. Real typing essentially never produces a
+/// zero-gap burst this long; a paste with no newline (a long URL or an
+/// unbroken paragraph) commonly does.
+#[cfg(windows)]
+const LONG_RUN_PASTE_THRESHOLD: usize = 24;
 
 #[cfg(windows)]
 impl PasteBurstAccumulator {
@@ -314,7 +324,8 @@ impl PasteBurstAccumulator {
             return Vec::new();
         }
         let text = std::mem::take(&mut self.buffer);
-        if text.chars().count() >= 2 && text.contains('\n') {
+        let len = text.chars().count();
+        if (len >= 2 && text.contains('\n')) || len >= LONG_RUN_PASTE_THRESHOLD {
             return vec![crate::protocol::ClientInputEvent::Paste { text }];
         }
         // Not paste-shaped: replay the buffered characters as the individual key
@@ -794,6 +805,27 @@ mod windows_tests {
             &[press(KeyCode::Char('h')), press(KeyCode::Char('i'))],
         );
         assert_eq!(out.len(), 2);
+        assert!(out
+            .iter()
+            .all(|e| matches!(e, crate::protocol::ClientInputEvent::Key { .. })));
+    }
+
+    #[test]
+    fn long_single_line_run_without_newline_coalesces_into_paste() {
+        let mut acc = PasteBurstAccumulator::default();
+        let text: String = "a".repeat(LONG_RUN_PASTE_THRESHOLD);
+        let events: Vec<Event> = text.chars().map(|ch| press(KeyCode::Char(ch))).collect();
+        let out = feed(&mut acc, &events);
+        assert_eq!(out, vec![crate::protocol::ClientInputEvent::Paste { text }]);
+    }
+
+    #[test]
+    fn single_line_run_just_below_threshold_replays_as_keys() {
+        let mut acc = PasteBurstAccumulator::default();
+        let text: String = "a".repeat(LONG_RUN_PASTE_THRESHOLD - 1);
+        let events: Vec<Event> = text.chars().map(|ch| press(KeyCode::Char(ch))).collect();
+        let out = feed(&mut acc, &events);
+        assert_eq!(out.len(), LONG_RUN_PASTE_THRESHOLD - 1);
         assert!(out
             .iter()
             .all(|e| matches!(e, crate::protocol::ClientInputEvent::Key { .. })));
