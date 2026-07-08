@@ -100,6 +100,8 @@ When herdr resumes a Claude session after restart it runs `claude --resume <sess
 
 To fix this, `TerminalState` stores `agent_session_project_cwd: Option<PathBuf>`. The Claude integration hook (`herdr-agent-state.ps1`/`.sh`) sends `--project-cwd <dir>` (from `workspace.current_dir` or `cwd` in the hook payload) when reporting a session via `herdr pane report-agent-session`. The server stores this in `terminal.agent_session_project_cwd` and persists it in `PaneAgentSessionSnapshot.project_cwd`. On restore, if a pane has a pending agent resume plan and `project_cwd` is set and exists on disk, the terminal spawns in `project_cwd` rather than the snapshot CWD.
 
+The hook reports `project_cwd` on every session hook call, not only `SessionStart` — but only `SessionStart` sends `--session-start-source`. `src/app/actions.rs`'s `AgentSessionReported` handler only overwrites `agent_session_project_cwd` when `session_start_source` is present (or nothing is stored yet), so a later hook event's CWD — which can be a subdirectory the agent `cd`'d into — can't clobber the project root and break resume.
+
 ## Vendored libghostty-vt
 
 `vendor/libghostty-vt.vendor.json` records the upstream source commit currently vendored.
