@@ -124,7 +124,7 @@ fn agent_panel_entries_with_runtimes(
                         pane_id: detail.pane_id,
                         primary_label: pane_label,
                         primary_tab_label: multi_tab.then_some(detail.tab_label),
-                        agent_label: Some(detail.agent_label),
+                        agent_label: detail.agent_label,
                         state: detail.state,
                         seen: detail.seen,
                         custom_status: detail.custom_status,
@@ -1176,13 +1176,28 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
 
+        // The second workspace's default tab has no agent detected on its pane,
+        // but it must still appear (issue #6: track all terminal sessions, not
+        // just detected agents), with a None agent_label.
         let entries = agent_panel_entries(&app);
+        assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].primary_label, "one");
         assert!(entries[0].primary_tab_label.is_none());
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
-        assert_eq!(entries[1].primary_label, "two");
-        assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
-        assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
+
+        let plain_shell = entries
+            .iter()
+            .find(|e| e.primary_tab_label.as_deref() != Some("logs") && e.ws_idx == 1)
+            .expect("plain shell pane should be listed");
+        assert_eq!(plain_shell.primary_label, "two");
+        assert!(plain_shell.agent_label.is_none());
+
+        let logs_entry = entries
+            .iter()
+            .find(|e| e.primary_tab_label.as_deref() == Some("logs"))
+            .expect("logs tab entry should be listed");
+        assert_eq!(logs_entry.primary_label, "two");
+        assert_eq!(logs_entry.agent_label.as_deref(), Some("claude"));
     }
 
     #[test]
@@ -1376,9 +1391,12 @@ mod tests {
                 .join("")
         };
 
+        // Tab 0's plain (agent-less) pane now also appears (issue #6), sorted before
+        // tab 1, so the asserted rows shift down by its 3-row entry plus 1-row spacer.
         assert!(row_text(body.y).contains("agent-browser"));
-        assert!(row_text(body.y + 1).contains("test-escalation"));
-        assert!(row_text(body.y + 2).contains("claude"));
+        assert!(row_text(body.y + 4).contains("agent-browser"));
+        assert!(row_text(body.y + 5).contains("test-escalation"));
+        assert!(row_text(body.y + 6).contains("claude"));
     }
 
     #[test]
