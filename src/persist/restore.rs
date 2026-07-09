@@ -526,12 +526,17 @@ fn restore_tab(
         };
         // For agent resume, prefer the stored project CWD (the directory where
         // the agent was launched) over the dynamic snapshot CWD which may be a
-        // subdirectory the agent navigated into during its session.
+        // subdirectory the agent navigated into during its session. When no
+        // project CWD was recorded (e.g. an outdated integration hook that
+        // predates this field), fall back to the git repo root of the saved
+        // CWD rather than using a possibly-deep subdirectory directly, since
+        // agent session lookup is keyed to the project root.
         let cwd = if pending_native_agent_restore.is_some() {
             saved_agent_session
                 .and_then(|s| s.project_cwd.as_ref())
                 .filter(|p| p.exists())
                 .cloned()
+                .or_else(|| crate::workspace::git_repo_root(&cwd))
                 .unwrap_or(cwd)
         } else {
             cwd
@@ -1410,6 +1415,88 @@ mod tests {
             .expect("restored terminal should exist");
         // Falls back to the pane's cwd when no project_cwd is stored.
         assert_eq!(terminal.cwd, cwd);
+    }
+
+    #[tokio::test]
+    async fn resume_falls_back_to_git_repo_root_when_project_cwd_absent_and_cwd_is_subdirectory() {
+        // No project_cwd stored (e.g. an outdated integration hook) and the saved
+        // pane cwd is a subdirectory of this git repo (rather than the repo root
+        // itself), simulating an agent that navigated into a subdirectory before
+        // the session was persisted.
+        let repo_root = std::env::current_dir().unwrap();
+        let subdirectory = repo_root.join("src");
+        assert!(subdirectory.is_dir(), "fixture subdirectory must exist");
+
+        let snapshot = SessionSnapshot {
+            version: super::super::snapshot::SNAPSHOT_VERSION,
+            workspaces: vec![WorkspaceSnapshot {
+                id: Some("workspace".into()),
+                custom_name: None,
+                identity_cwd: repo_root.clone(),
+                worktree_space: None,
+                public_pane_numbers: HashMap::new(),
+                next_public_pane_number: 0,
+                public_tab_numbers: Vec::new(),
+                next_public_tab_number: 0,
+                tabs: vec![TabSnapshot {
+                    custom_name: None,
+                    layout: LayoutSnapshot::Pane(0),
+                    panes: HashMap::from([(
+                        0,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: subdirectory.clone(),
+                            label: None,
+                            agent_name: None,
+                            session_title: None,
+                            agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                                source: "herdr:claude".into(),
+                                agent: "claude".into(),
+                                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                                value: "claude-session-id".into(),
+                                project_cwd: None,
+                            }),
+                            launch_argv: None,
+                        },
+                    )]),
+                    zoomed: false,
+                    focused: Some(0),
+                    root_pane: Some(0),
+                }],
+                active_tab: 0,
+            }],
+            active: Some(0),
+            selected: 0,
+            sidebar_width: None,
+            sidebar_section_split: None,
+            collapsed_space_keys: Default::default(),
+        };
+        let (events, _event_rx) = mpsc::channel(4);
+
+        let (_workspaces, terminals, _runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            0,
+            test_restore_shell(),
+            crate::config::ShellModeConfig::NonLogin,
+            true, // resume_agents_on_restore
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored terminal should exist");
+        // Resume should walk up to the repo root instead of using the saved
+        // subdirectory directly, since agent session lookup is keyed to the
+        // project root.
+        assert_eq!(
+            terminal.cwd, repo_root,
+            "resume should walk up to the git repo root when project_cwd is missing"
+        );
     }
 
     #[tokio::test]

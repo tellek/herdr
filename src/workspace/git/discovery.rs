@@ -231,7 +231,7 @@ fn git_trimmed_stdout(repo_root: &Path, args: &[&str]) -> Option<String> {
     (!stdout.is_empty()).then(|| stdout.to_string())
 }
 
-pub(super) fn git_repo_root(start: &Path) -> Option<PathBuf> {
+pub fn git_repo_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_dir() {
         start.to_path_buf()
     } else {

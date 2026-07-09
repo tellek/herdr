@@ -114,6 +114,8 @@ To fix this, `TerminalState` stores `agent_session_project_cwd: Option<PathBuf>`
 
 The hook reports `project_cwd` on every session hook call, not only `SessionStart` — but only `SessionStart` sends `--session-start-source`. `src/app/actions.rs`'s `AgentSessionReported` handler only overwrites `agent_session_project_cwd` when `session_start_source` is present (or nothing is stored yet), so a later hook event's CWD — which can be a subdirectory the agent `cd`'d into — can't clobber the project root and break resume.
 
+**Git-repo-root fallback (issue #5).** `project_cwd` requires an integration hook new enough to send it (v9+); an outdated install never populates it, so resume would otherwise still spawn in a possibly-deep saved subdirectory. `persist/restore.rs` now falls back to `crate::workspace::git_repo_root(&cwd)` — walking up from the saved pane CWD to the nearest git repo root — before falling back to the raw saved CWD, when no on-disk `project_cwd` is stored. `git_repo_root` (`src/workspace/git/discovery.rs`) is now `pub`, re-exported via `workspace::git` and `workspace`, so this works without requiring the user to reinstall the integration.
+
 ## Vendored libghostty-vt
 
 `vendor/libghostty-vt.vendor.json` records the upstream source commit currently vendored.
