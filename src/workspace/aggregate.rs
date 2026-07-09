@@ -19,6 +19,7 @@ pub struct PaneDetail {
     pub agent: Option<Agent>,
     pub state: AgentState,
     pub seen: bool,
+    #[allow(dead_code)]
     pub last_agent_state_change_seq: Option<u64>,
     pub custom_status: Option<String>,
     pub state_labels: HashMap<String, String>,

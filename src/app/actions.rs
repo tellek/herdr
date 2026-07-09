@@ -3781,22 +3781,6 @@ mod tests {
         }
     }
 
-    fn transition_agent_state(state: &mut AppState, pane_id: PaneId, agent_state: AgentState) {
-        state
-            .update_terminal_state(pane_id, |terminal| {
-                Some(terminal.set_detected_state_with_screen_signals_at(
-                    Some(Agent::Pi),
-                    agent_state,
-                    matches!(agent_state, AgentState::Blocked),
-                    false,
-                    false,
-                    false,
-                    std::time::Instant::now(),
-                ))
-            })
-            .expect("agent state transition should update pane state");
-    }
-
     #[test]
     fn next_agent_cycles_agent_panel_entries() {
         let mut first = Workspace::test_new("one");
@@ -3864,58 +3848,6 @@ mod tests {
         assert!(state.focus_agent_entry(0));
         assert_eq!(state.active, Some(0));
         assert_eq!(state.workspaces[0].focused_pane_id(), Some(root));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn next_agent_cycles_priority_sorted_agent_panel_entries() {
-        let mut first = Workspace::test_new("one");
-        let first_root = first.tabs[0].root_pane;
-        let first_second = first.test_split(Direction::Horizontal);
-        first.tabs[0].layout.focus_pane(first_root);
-        let second = Workspace::test_new("two");
-        let second_root = second.tabs[0].root_pane;
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![first, second];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-        set_agent_state(&mut state, 0, 0, first_root, AgentState::Idle);
-        set_agent_state(&mut state, 0, 0, first_second, AgentState::Working);
-        set_agent_state(&mut state, 1, 0, second_root, AgentState::Blocked);
-
-        state.next_agent();
-
-        assert_eq!(state.active, Some(1));
-        assert_eq!(state.workspaces[1].focused_pane_id(), Some(second_root));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn priority_sort_keeps_recently_changed_idle_agent_above_older_idle_agent() {
-        let mut workspace = Workspace::test_new("one");
-        let first = workspace.tabs[0].root_pane;
-        let second = workspace.test_split(Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(first);
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![workspace];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-
-        transition_agent_state(&mut state, first, AgentState::Idle);
-        transition_agent_state(&mut state, second, AgentState::Working);
-        assert_eq!(crate::ui::agent_panel_entries(&state)[0].pane_id, second);
-
-        transition_agent_state(&mut state, second, AgentState::Idle);
-
-        assert_eq!(crate::ui::agent_panel_entries(&state)[0].pane_id, second);
         state.assert_invariants_for_test();
     }
 
