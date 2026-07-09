@@ -12,7 +12,7 @@ pub struct PaneDetail {
     pub tab_idx: usize,
     pub tab_label: String,
     pub label: String,
-    pub agent_label: String,
+    pub agent_label: Option<String>,
     /// Explicit display name override for primary label (agent_name or session_title).
     pub name_override: Option<String>,
     #[allow(dead_code)]
@@ -46,17 +46,16 @@ impl Tab {
             .filter_map(|id| {
                 let pane = self.panes.get(id)?;
                 let terminal = terminals.get(&pane.attached_terminal_id)?;
-                // A pane appears in the agent panel if it has an agent_name or detected agent.
+                // Every pane appears in the session panel, whether or not an agent is detected.
                 let has_agent_name = terminal.agent_name.is_some();
                 let effective_type = terminal.effective_agent_label();
-                if !has_agent_name && effective_type.is_none() {
-                    return None;
-                }
-                // Secondary label (row 2): prefer agent TYPE over agent_name.
-                let agent_label = terminal
-                    .effective_display_agent()
-                    .or_else(|| effective_type.map(str::to_string))
-                    .unwrap_or_else(|| terminal.agent_name.clone().unwrap_or_default());
+                // Secondary label (row 2): prefer agent TYPE over agent_name; absent for plain shells.
+                let agent_label = (has_agent_name || effective_type.is_some()).then(|| {
+                    terminal
+                        .effective_display_agent()
+                        .or_else(|| effective_type.map(str::to_string))
+                        .unwrap_or_else(|| terminal.agent_name.clone().unwrap_or_default())
+                });
                 // Primary label override: agent_name (explicit) or session_title (auto).
                 let name_override = terminal.primary_display_name().map(str::to_string);
                 let presentation = terminal.effective_presentation();
@@ -64,7 +63,10 @@ impl Tab {
                     pane_id: *id,
                     tab_idx,
                     tab_label: tab_label.to_string(),
-                    label: name_override.clone().unwrap_or_else(|| agent_label.clone()),
+                    label: name_override
+                        .clone()
+                        .or_else(|| agent_label.clone())
+                        .unwrap_or_default(),
                     agent_label,
                     name_override,
                     agent: terminal.effective_known_agent(),
@@ -123,7 +125,10 @@ impl Workspace {
             })
             .map(|mut detail| {
                 if multi_tab {
-                    detail.label = format!("{}·{}", detail.tab_label, detail.agent_label);
+                    detail.label = match &detail.agent_label {
+                        Some(agent_label) => format!("{}·{}", detail.tab_label, agent_label),
+                        None => detail.tab_label.clone(),
+                    };
                 }
                 detail
             })
@@ -223,7 +228,7 @@ mod tests {
         // label (primary) uses agent_name; agent_label (secondary) shows agent TYPE
         assert_eq!(
             labels,
-            vec![("planner".into(), "pi".into(), Some(Agent::Pi))]
+            vec![("planner".into(), Some("pi".into()), Some(Agent::Pi))]
         );
     }
 
@@ -263,8 +268,12 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                ("main·pi".into(), "pi".into(), Some(Agent::Pi)),
-                ("review·claude".into(), "claude".into(), Some(Agent::Claude)),
+                ("main·pi".into(), Some("pi".into()), Some(Agent::Pi)),
+                (
+                    "review·claude".into(),
+                    Some("claude".into()),
+                    Some(Agent::Claude)
+                ),
             ]
         );
     }
@@ -290,5 +299,23 @@ mod tests {
 
         assert_eq!(ws.tabs[1].number, 3);
         assert_eq!(survivor.tab_idx, 1);
+    }
+
+    #[test]
+    fn pane_details_lists_plain_terminals_without_a_detected_agent() {
+        // Issue #6: the panel tracks all terminal sessions, not just detected agents.
+        let ws = Workspace::test_new("test");
+        let root_pane = ws.tabs[0].root_pane;
+        let mut terminals = HashMap::new();
+        let terminal = terminal_for_pane(&ws, root_pane);
+        terminals.insert(terminal.id.clone(), terminal);
+
+        let details = ws.pane_details(&terminals);
+
+        assert_eq!(details.len(), 1);
+        assert_eq!(details[0].pane_id, root_pane);
+        assert!(details[0].agent_label.is_none());
+        assert!(details[0].agent.is_none());
+        assert_eq!(details[0].state, AgentState::Unknown);
     }
 }

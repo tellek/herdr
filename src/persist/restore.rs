@@ -1605,7 +1605,7 @@ mod tests {
         assert_eq!(workspace.active_tab, 3);
         assert_eq!(workspace.tabs[3].number, 5);
         assert_eq!(detail.tab_idx, 3);
-        assert_eq!(detail.agent_label, "planner");
+        assert_eq!(detail.agent_label.as_deref(), Some("planner"));
     }
 
     #[test]
