@@ -424,20 +424,6 @@ impl AppState {
         best.map(|(insert_idx, _)| insert_idx)
     }
 
-    pub(super) fn on_agent_panel_sort_toggle(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed {
-            return false;
-        }
-
-        let rect =
-            crate::ui::agent_panel_toggle_rect(self.agent_panel_rect(), self.agent_panel_sort);
-        rect.width > 0
-            && col >= rect.x
-            && col < rect.x + rect.width
-            && row >= rect.y
-            && row < rect.y + rect.height
-    }
-
     pub(super) fn agent_detail_target_at(
         &self,
         row: u16,
@@ -486,7 +472,7 @@ mod tests {
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse};
     use crate::{
-        app::state::{AgentPanelSort, DragTarget, Mode},
+        app::state::{DragTarget, Mode},
         detect::Agent,
         workspace::Workspace,
     };
@@ -698,27 +684,6 @@ mod tests {
             snapshot.workspaces[0].tabs[first_tab].focused,
             Some(second_pane.raw())
         );
-    }
-
-    #[test]
-    fn clicking_agent_panel_toggle_switches_sort() {
-        let mut app = app_for_mouse_test();
-        app.state.workspaces = vec![Workspace::test_new("test")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.agent_panel_scroll = 3;
-
-        let detail_area = app.state.agent_panel_rect();
-        let toggle = crate::ui::agent_panel_toggle_rect(detail_area, app.state.agent_panel_sort);
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            toggle.x,
-            toggle.y,
-        ));
-
-        assert_eq!(app.state.agent_panel_sort, AgentPanelSort::Priority);
-        assert_eq!(app.state.agent_panel_scroll, 0);
     }
 
     #[test]

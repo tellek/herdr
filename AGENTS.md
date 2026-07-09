@@ -76,6 +76,10 @@ Do not add large agent-specific full-screen fixture suites for routine manifest 
 
 Each agent panel entry (`src/ui/sidebar.rs`) renders on its own name row, then — only when its workspace has more than one tab (`AgentPanelEntry::primary_tab_label` is `Some`) — a dedicated tab-name row, then a status row (`status · agent type · custom status`). `agent_panel_entry_height()` returns 3 rows for entries with a tab label, else 2; `agent_panel_visible_count`/`agent_panel_scroll_metrics` (scroll math) and `agent_detail_target_at` (click-to-entry mapping, `src/app/input/sidebar.rs`) both use this per-entry height so mixed-height entries in the same list stay in sync between what's drawn and what's clickable. The previous single combined "name · tab" row was split out (issue #10) because long names/tabs made both unreadable when squeezed onto one truncated line.
 
+## Agent panel ordering
+
+The agent panel always sorts entries by originating tab (`ws_idx`, `tab_idx`, in creation order), then alphabetically by `primary_label` within each tab — no user-facing option to change it. `agent_panel_entries_with_runtimes()` (`src/ui/sidebar.rs`) applies this as a single `sort_by` after building the flat entry list; there is no `AgentPanelSort`/`AgentPanelSortConfig` toggle, header click target, or `agent_panel_sort` config key anymore (removed in issue #7 — the prior "grouped"/"priority" switch was judged pointless clutter). A legacy `agent_panel_sort` key in an existing config TOML is silently ignored (not `deny_unknown_fields`), so old config files still parse.
+
 ## Sidebar footer layout
 
 The bottom row of the expanded sidebar (`sidebar.y + sidebar.height - 1`) is a combined footer row shared by the menu label and the `«` collapse toggle. The toggle sits at column `sidebar.x + sidebar.width - 2` (just left of the `│` separator). When `mouse_capture` is enabled, the `menu` label is rendered directly to the left of the toggle on the same row. `global_launcher_rect()` and `agent_panel_rect()` both reserve exactly 1 row for this footer (not 2) regardless of `mouse_capture`.

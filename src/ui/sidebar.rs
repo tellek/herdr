@@ -8,7 +8,7 @@ use ratatui::{
 
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{agent_icon, state_dot, state_label, state_label_color};
-use crate::app::state::{AgentPanelSort, Palette};
+use crate::app::state::Palette;
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
@@ -26,7 +26,6 @@ pub(crate) struct AgentPanelEntry {
     pub agent_label: Option<String>,
     pub state: AgentState,
     pub seen: bool,
-    pub last_agent_state_change_seq: Option<u64>,
     pub custom_status: Option<String>,
     pub state_labels: std::collections::HashMap<String, String>,
 }
@@ -68,23 +67,6 @@ pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect
 
     let (ws_h, _) = sidebar_section_heights(content.height, split_ratio);
     Rect::new(content.x, content.y + ws_h, content.width, 1)
-}
-
-fn agent_panel_sort_label(sort: AgentPanelSort) -> &'static str {
-    match sort {
-        AgentPanelSort::Spaces => "grouped",
-        AgentPanelSort::Priority => "priority",
-    }
-}
-
-pub(crate) fn agent_panel_toggle_rect(area: Rect, sort: AgentPanelSort) -> Rect {
-    if area.width == 0 || area.height < 2 {
-        return Rect::default();
-    }
-
-    let label = agent_panel_sort_label(sort);
-    let width = label.chars().count() as u16;
-    Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
 }
 
 pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
@@ -145,7 +127,6 @@ fn agent_panel_entries_with_runtimes(
                         agent_label: Some(detail.agent_label),
                         state: detail.state,
                         seen: detail.seen,
-                        last_agent_state_change_seq: detail.last_agent_state_change_seq,
                         custom_status: detail.custom_status,
                         state_labels: detail.state_labels,
                     }
@@ -153,14 +134,17 @@ fn agent_panel_entries_with_runtimes(
         })
         .collect();
 
-    if matches!(app.agent_panel_sort, AgentPanelSort::Priority) {
-        entries.sort_by_key(|entry| {
-            (
-                std::cmp::Reverse(workspace_attention_priority(entry.state, entry.seen)),
-                std::cmp::Reverse(entry.last_agent_state_change_seq),
-            )
-        });
-    }
+    // Always grouped by originating tab, then alphabetical within each group.
+    entries.sort_by(|a, b| {
+        a.ws_idx
+            .cmp(&b.ws_idx)
+            .then(a.tab_idx.cmp(&b.tab_idx))
+            .then_with(|| {
+                a.primary_label
+                    .to_lowercase()
+                    .cmp(&b.primary_label.to_lowercase())
+            })
+    });
 
     entries
 }
@@ -980,18 +964,6 @@ fn render_agent_detail(
         )])),
         Rect::new(area.x, area.y, area.width, 1),
     );
-    let toggle_rect = agent_panel_toggle_rect(area, app.agent_panel_sort);
-    if toggle_rect != Rect::default() {
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                agent_panel_sort_label(app.agent_panel_sort),
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Right),
-            toggle_rect,
-        );
-    }
-
     let details = agent_panel_entries_from(app, terminal_runtimes);
     let metrics = agent_panel_scroll_metrics(app, area);
     let scrollbar_rect = agent_panel_scrollbar_rect(app, area);
@@ -1147,7 +1119,7 @@ fn render_sidebar_toggle(
 mod tests {
     use super::*;
     use crate::{detect::Agent, workspace::Workspace};
-    use ratatui::{backend::TestBackend, Terminal};
+    use ratatui::{backend::TestBackend, layout::Direction, Terminal};
 
     #[test]
     fn render_sidebar_toggle_draws_expanded_collapse_icon() {
@@ -1214,46 +1186,43 @@ mod tests {
     }
 
     #[test]
-    fn priority_agent_panel_sort_uses_attention_then_space_order() {
+    fn agent_panel_entries_are_grouped_by_tab_then_alphabetized() {
+        let mut ws = Workspace::test_new("ws");
+        let tab0_root = ws.tabs[0].root_pane;
+        let tab0_second = ws.test_split(Direction::Horizontal);
+        let tab1 = ws.test_add_tab(Some("logs"));
+        ws.switch_tab(tab1);
+        let tab1_root = ws.tabs[tab1].root_pane;
+        let tab1_second = ws.test_split(Direction::Horizontal);
+
         let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![
-            Workspace::test_new("one"),
-            Workspace::test_new("two"),
-            Workspace::test_new("three"),
-            Workspace::test_new("four"),
-        ];
+        app.workspaces = vec![ws];
         app.ensure_test_terminals();
         app.active = Some(0);
         app.selected = 0;
-        app.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
 
-        let set_state = |app: &mut crate::app::state::AppState, ws_idx: usize, state| {
-            let pane = app.workspaces[ws_idx].tabs[0].root_pane;
-            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
+        let rename = |app: &mut crate::app::state::AppState,
+                      tab_idx: usize,
+                      pane: crate::layout::PaneId,
+                      label: &str| {
+            let terminal_id = app.workspaces[0].tabs[tab_idx].panes[&pane]
                 .attached_terminal_id
                 .clone();
             let terminal = app.terminals.get_mut(&terminal_id).unwrap();
             terminal.detected_agent = Some(Agent::Claude);
-            terminal.state = state;
+            terminal.set_manual_label(label.into());
         };
-        set_state(&mut app, 0, AgentState::Working);
-        set_state(&mut app, 1, AgentState::Idle);
-        set_state(&mut app, 2, AgentState::Working);
-        set_state(&mut app, 3, AgentState::Blocked);
-
-        let done_pane = app.workspaces[1].tabs[0].root_pane;
-        app.workspaces[1].tabs[0]
-            .panes
-            .get_mut(&done_pane)
-            .unwrap()
-            .seen = false;
+        rename(&mut app, 0, tab0_root, "zebra");
+        rename(&mut app, 0, tab0_second, "apple");
+        rename(&mut app, tab1, tab1_root, "yankee");
+        rename(&mut app, tab1, tab1_second, "bravo");
 
         let labels: Vec<String> = agent_panel_entries(&app)
             .into_iter()
             .map(|entry| entry.primary_label)
             .collect();
 
-        assert_eq!(labels, ["four", "two", "one", "three"]);
+        assert_eq!(labels, ["apple", "zebra", "bravo", "yankee"]);
     }
 
     #[cfg(unix)]
@@ -1363,7 +1332,6 @@ mod tests {
             agent_label: Some("claude".into()),
             state: AgentState::Idle,
             seen: true,
-            last_agent_state_change_seq: None,
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
         };
