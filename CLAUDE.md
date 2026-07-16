@@ -24,6 +24,7 @@ AGENTS.md
 ## Project
 
 Herdr is a terminal workspace manager for AI coding agents, built with Rust and ratatui. It runs as a server/client pair communicating over a local socket (Unix socket on Linux/macOS, named pipe on Windows via `interprocess`). Windows support is preview beta.
+- The primary branch is 'master'
 
 ## Commands
 
@@ -120,6 +121,10 @@ A drag selection in a terminal pane stays highlighted after mouse release instea
 ## Dynamic agent label CWD (Windows)
 
 On Windows, `PaneRuntime` tracks the foreground subprocess PID in `foreground_pid: Arc<AtomicU32>` (shared with the detection task). The detection loop sets `foreground_pid` to the agent (e.g. Claude) subprocess PID whenever it identifies a foreground agent, and to 0/shell-PID when the shell is foreground. `PaneRuntime.cwd()` on Windows first checks `foreground_pid` — if it differs from `child_pid` (the shell), it calls `platform::process_cwd(foreground_pid)` to read the agent's actual CWD, so the sidebar label dynamically reflects where Claude is working rather than where the shell started.
+
+## Windows process snapshots (lazy command lines, issue #12)
+
+`snapshot_processes()` (`src/platform/windows.rs`) captures only pid/parent/name from the toolhelp snapshot. Command lines are hydrated lazily by `hydrate_command_lines(entries, pids)` for just the pids a caller inspects — `foreground_job` hydrates the pane shell + descendants, `foreground_group_leader_job` one pid, `session_processes` none. Previously every detection tick (300–500 ms per pane) read the command line of every process on the system (OpenProcess + NtQueryInformationProcess + 2× ReadProcessMemory + CommandLineToArgvW each), which was the allocation-churn source behind the growing memory footprint reported in issue #12. Unhydrated entries keep `argv0 = name`.
 
 ## Windows-specific notes
 

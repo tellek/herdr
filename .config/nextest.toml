@@ -1,0 +1,7 @@
+# Windows-only safety net: real-PTY teardown (ConPTY actor join) can
+# intermittently hang during test shutdown. Bound each test and retry the
+# flaky ones so Windows runs stay reliable. Unix/macOS behavior is unchanged.
+[[profile.default.overrides]]
+platform = 'cfg(windows)'
+slow-timeout = { period = "60s", terminate-after = 2 }
+retries = 2

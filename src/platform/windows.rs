@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ffi::c_void,
     mem::{size_of, MaybeUninit},
     path::PathBuf,
@@ -99,12 +99,19 @@ pub fn restore_console_input_mode(previous: Option<u32>) {
 }
 
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
-    let entries = snapshot_processes();
+    let mut entries = snapshot_processes();
+    let mut pids: HashSet<u32> = descendant_entries(child_pid, &entries)
+        .iter()
+        .map(|entry| entry.pid)
+        .collect();
+    pids.insert(child_pid);
+    hydrate_command_lines(&mut entries, &pids);
     select_pane_foreground_job(child_pid, &entries)
 }
 
 pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJob> {
-    let entries = snapshot_processes();
+    let mut entries = snapshot_processes();
+    hydrate_command_lines(&mut entries, &HashSet::from([process_group_id]));
     let entry = entries.iter().find(|entry| entry.pid == process_group_id)?;
     Some(ForegroundJob {
         process_group_id,
@@ -235,6 +242,11 @@ fn foreground_process_from_entry(entry: &WindowsProcessEntry) -> super::Foregrou
     }
 }
 
+/// Enumerate all processes via toolhelp, capturing only pid/parent/name.
+/// Command lines are expensive to read (OpenProcess + ReadProcessMemory per
+/// process) and the detection loop calls this several times a second per pane,
+/// so they are hydrated lazily via [`hydrate_command_lines`] for only the
+/// entries a caller actually inspects.
 fn snapshot_processes() -> Vec<WindowsProcessEntry> {
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
@@ -249,25 +261,32 @@ fn snapshot_processes() -> Vec<WindowsProcessEntry> {
     let mut output = Vec::new();
     let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
     while ok {
-        let pid = entry.th32ProcessID;
         let name = nul_terminated_utf16_to_string(&entry.szExeFile);
-        let cmdline = process_command_line(pid);
-        let argv = cmdline.as_deref().and_then(command_line_to_argv);
-        let argv0 = argv
-            .as_ref()
-            .and_then(|argv| argv.first().cloned())
-            .or_else(|| (!name.is_empty()).then(|| name.clone()));
+        let argv0 = (!name.is_empty()).then(|| name.clone());
         output.push(WindowsProcessEntry {
-            pid,
+            pid: entry.th32ProcessID,
             parent_pid: entry.th32ParentProcessID,
             name,
             argv0,
-            argv,
-            cmdline,
+            argv: None,
+            cmdline: None,
         });
         ok = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
     }
     output
+}
+
+fn hydrate_command_lines(entries: &mut [WindowsProcessEntry], pids: &HashSet<u32>) {
+    for entry in entries.iter_mut().filter(|entry| pids.contains(&entry.pid)) {
+        if entry.cmdline.is_some() {
+            continue;
+        }
+        entry.cmdline = process_command_line(entry.pid);
+        entry.argv = entry.cmdline.as_deref().and_then(command_line_to_argv);
+        if let Some(argv0) = entry.argv.as_ref().and_then(|argv| argv.first()) {
+            entry.argv0 = Some(argv0.clone());
+        }
+    }
 }
 
 fn process_command_line(pid: u32) -> Option<String> {
@@ -742,6 +761,92 @@ mod tests {
         pids.sort_unstable();
 
         assert_eq!(pids, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn windows_process_tree_ignores_unhydrated_unrelated_entries() {
+        // Entries outside the pane's descendant tree are never hydrated
+        // (cmdline/argv stay None); selection must still work off the
+        // hydrated shell + descendants.
+        let entries = vec![
+            unhydrated_entry(1, 0, "wininit.exe"),
+            unhydrated_entry(99, 1, "claude.exe"),
+            test_entry(10, 1, "powershell.exe", &["powershell.exe"]),
+            test_entry(20, 10, "claude.exe", &["claude.exe"]),
+        ];
+
+        let job = super::select_pane_foreground_job(10, &entries).unwrap();
+
+        assert_eq!(job.process_group_id, 20);
+        assert_eq!(job.processes[0].name, "claude.exe");
+    }
+
+    #[test]
+    fn windows_hydrate_command_lines_fills_only_requested_pids() {
+        let self_pid = std::process::id();
+        let mut entries = vec![
+            unhydrated_entry(self_pid, 1, "herdr.exe"),
+            unhydrated_entry(4, 0, "System"),
+        ];
+
+        super::hydrate_command_lines(&mut entries, &std::collections::HashSet::from([self_pid]));
+
+        assert!(entries[0].cmdline.is_some());
+        assert!(entries[1].cmdline.is_none());
+        assert!(entries[1].argv.is_none());
+    }
+
+    #[test]
+    fn windows_snapshot_processes_defers_command_lines() {
+        let entries = super::snapshot_processes();
+        assert!(!entries.is_empty());
+        assert!(entries.iter().all(|entry| entry.cmdline.is_none()));
+        assert!(entries.iter().all(|entry| entry.argv.is_none()));
+    }
+
+    #[test]
+    fn windows_foreground_job_hydrates_pane_descendants() {
+        // The real pane path: foreground_job must still identify an agent
+        // descendant by command line even though the snapshot defers them.
+        let shell =
+            std::env::var_os("ComSpec").unwrap_or_else(|| r"C:\Windows\System32\cmd.exe".into());
+        let mut child = Command::new(shell)
+            .args(["/D", "/Q", "/C", "ping -n 11 127.0.0.1 > NUL"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn cmd");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut job = None;
+        while Instant::now() < deadline {
+            job = super::foreground_job(child.id());
+            if job.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let job = job.expect("foreground job for live shell");
+        assert!(job
+            .processes
+            .iter()
+            .all(|process| process.cmdline.is_some()));
+    }
+
+    fn unhydrated_entry(pid: u32, parent_pid: u32, name: &str) -> super::WindowsProcessEntry {
+        super::WindowsProcessEntry {
+            pid,
+            parent_pid,
+            name: name.to_string(),
+            argv0: Some(name.to_string()),
+            argv: None,
+            cmdline: None,
+        }
     }
 
     fn test_entry(
