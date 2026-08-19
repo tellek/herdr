@@ -114,21 +114,6 @@ fn live_status_spans(s: &LiveStatus, p: &Palette) -> Vec<Span<'static>> {
         spans.push(Span::styled(format!(" +{}", s.added_dirs), dim));
     }
 
-    // | alarm 200K alarm (red) when over 200k
-    if s.exceeds_200k {
-        spans.push(Span::styled(" | ", dim));
-        spans.push(Span::styled(
-            "\u{23F0} 200K \u{23F0}",
-            Style::default().fg(p.red),
-        ));
-    }
-
-    // | session id
-    if let Some(id) = &s.session_id {
-        spans.push(Span::styled(" | ", dim));
-        spans.push(Span::styled(id.clone(), dim));
-    }
-
     spans
 }
 

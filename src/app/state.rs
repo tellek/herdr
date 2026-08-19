@@ -489,6 +489,28 @@ impl Palette {
         }
     }
 
+    /// Satisfactory — FICSIT industrial orange on dark factory-floor tones.
+    pub fn satisfactory() -> Self {
+        Self {
+            accent: Color::Rgb(250, 149, 73), // FICSIT orange
+            panel_bg: Color::Rgb(20, 23, 31),
+            surface0: Color::Rgb(30, 35, 48),
+            surface1: Color::Rgb(44, 50, 66),
+            surface_dim: Color::Rgb(24, 27, 36),
+            overlay0: Color::Rgb(107, 114, 128), // foundation gray
+            overlay1: Color::Rgb(154, 163, 181),
+            text: Color::Rgb(238, 241, 246), // concrete white
+            subtext0: Color::Rgb(183, 192, 209),
+            mauve: Color::Rgb(168, 102, 214), // SAM / Somersloop purple
+            green: Color::Rgb(2, 202, 95),    // electronics green
+            yellow: Color::Rgb(217, 164, 65), // caterium gold
+            red: Color::Rgb(201, 80, 47),     // iron ore rust
+            blue: Color::Rgb(95, 102, 140),   // FICSIT blue-gray
+            teal: Color::Rgb(58, 124, 168),   // electronics blue, lightened
+            peach: Color::Rgb(255, 179, 128), // FICSIT orange, lightened
+        }
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -510,6 +532,7 @@ impl Palette {
             "rose-pine" | "rosepine" => Some(Self::rose_pine()),
             "rose-pine-dawn" | "rosepine-dawn" | "dawn" => Some(Self::rose_pine_dawn()),
             "vesper" => Some(Self::vesper()),
+            "satisfactory" => Some(Self::satisfactory()),
             _ => None,
         }
     }
@@ -918,6 +941,7 @@ pub const THEME_NAMES: &[&str] = &[
     "rose-pine",
     "rose-pine-dawn",
     "vesper",
+    "satisfactory",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

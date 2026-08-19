@@ -820,7 +820,7 @@ mod tests {
         let auto_style = buffer[(auto_rect.x + 1, auto_rect.y)].style();
         let custom_style = buffer[(custom_rect.x + 1, custom_rect.y)].style();
 
-        assert_eq!(auto_style.fg, Some(app.palette.overlay0));
+        assert_eq!(auto_style.fg, Some(app.palette.accent));
         assert!(auto_style.add_modifier.contains(Modifier::DIM));
         assert_eq!(custom_style.fg, Some(app.palette.panel_bg));
         assert!(custom_style.add_modifier.contains(Modifier::BOLD));

@@ -634,14 +634,21 @@ fn mobile_agent_detail(entry: &AgentPanelEntry) -> String {
     if let Some(tab_label) = entry.primary_tab_label.as_deref() {
         parts.push(tab_label.to_string());
     }
-    let status = entry
-        .state_labels
-        .get(super::sidebar::agent_panel_status_key(
-            entry.state,
-            entry.seen,
-        ))
-        .cloned()
-        .unwrap_or_else(|| super::status::state_label(entry.state, entry.seen).to_string());
+    let status = if entry.agent_label.is_none() {
+        entry.foreground_display_name.clone()
+    } else {
+        None
+    }
+    .or_else(|| {
+        entry
+            .state_labels
+            .get(super::sidebar::agent_panel_status_key(
+                entry.state,
+                entry.seen,
+            ))
+            .cloned()
+    })
+    .unwrap_or_else(|| super::status::state_label(entry.state, entry.seen).to_string());
     parts.push(status);
     if let Some(agent_label) = entry.agent_label.as_deref() {
         parts.push(agent_label.to_string());
@@ -957,6 +964,7 @@ mod tests {
             primary_label: "herdr".into(),
             primary_tab_label: primary_tab_label.map(str::to_string),
             agent_label: agent_label.map(str::to_string),
+            foreground_display_name: None,
             state: AgentState::Idle,
             seen: true,
             custom_status: None,

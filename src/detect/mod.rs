@@ -503,6 +503,18 @@ fn path_basename(path: &str) -> &str {
         .unwrap_or(path)
 }
 
+/// Normalize a raw OS process name for display: strips any path prefix and a
+/// trailing case-insensitive `.exe`, but preserves the process's own casing.
+/// Used as a sidebar status-line fallback label for panes with no detected
+/// coding agent (a plain shell, or an app that isn't a known agent).
+pub(crate) fn display_process_name(raw: &str) -> String {
+    let base = path_basename(raw);
+    match base.len().checked_sub(4) {
+        Some(split) if base[split..].eq_ignore_ascii_case(".exe") => base[..split].to_string(),
+        _ => base.to_string(),
+    }
+}
+
 fn process_priority(process: &crate::platform::ForegroundProcess, normalized_name: &str) -> u8 {
     let lower_name = normalized_name.to_lowercase();
     if lower_name != process.name.to_lowercase() {
@@ -566,6 +578,28 @@ mod tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn display_process_name_strips_exe_suffix_case_insensitively() {
+        assert_eq!(display_process_name("pwsh.exe"), "pwsh");
+        assert_eq!(display_process_name("MyConsoleApp.EXE"), "MyConsoleApp");
+        assert_eq!(display_process_name("bash"), "bash");
+    }
+
+    #[test]
+    fn display_process_name_strips_path_prefix() {
+        assert_eq!(
+            display_process_name(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+            "pwsh"
+        );
+        assert_eq!(display_process_name("/usr/bin/pwsh"), "pwsh");
+    }
+
+    #[test]
+    fn display_process_name_leaves_short_names_untouched() {
+        assert_eq!(display_process_name("sh"), "sh");
+        assert_eq!(display_process_name(""), "");
     }
 
     #[test]

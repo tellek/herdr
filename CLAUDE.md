@@ -8,18 +8,17 @@ AGENTS.md
 
 - **ALWAYS capture a passing test baseline before making changes.** Run the full test suite first (via the `windows-tests` skill on Windows) and record the result, so that after your changes you can re-run and diff against the baseline to tell whether a failure was caused by your change or was pre-existing.
 - **ALWAYS when starting new work in a fresh session**
-    Execute the following in order:
+    Execute the following in order, working directly on `master` (no feature branches, no pull requests — commits on master are the rollback points):
     1. Switch to the master branch
     2. Get latest on the branch
-    3. Create a new branch
-    4. Run tests to get a baseline
-    5. Implement the changes required for the current work
-    6. Create/fix unit tests to cover the changes made
-    7. Run the unit tests you created, go back to #6 if any failures
-    8. Run all test, fix any issues, do not proceed until all tests pass
-    9. Update claude.md and agents.md with the appropriate information regarding the changes made in this session
-    10. Commit, push, and merge into the master branch (no pull request)
-    11. Mark the item as done in the todo.yaml (if you are working from there)
+    3. Run tests to get a baseline
+    4. Implement the changes required for the current work
+    5. Create/fix unit tests to cover the changes made
+    6. Run the unit tests you created, go back to #5 if any failures
+    7. Run all test, fix any issues, do not proceed until all tests pass
+    8. Update claude.md and agents.md with the appropriate information regarding the changes made in this session
+    9. Commit and push to master
+    10. Mark the item as done in the todo.yaml (if you are working from there)
 
 ## Project
 
@@ -121,6 +120,10 @@ A drag selection in a terminal pane stays highlighted after mouse release instea
 ## Dynamic agent label CWD (Windows)
 
 On Windows, `PaneRuntime` tracks the foreground subprocess PID in `foreground_pid: Arc<AtomicU32>` (shared with the detection task). The detection loop sets `foreground_pid` to the agent (e.g. Claude) subprocess PID whenever it identifies a foreground agent, and to 0/shell-PID when the shell is foreground. `PaneRuntime.cwd()` on Windows first checks `foreground_pid` — if it differs from `child_pid` (the shell), it calls `platform::process_cwd(foreground_pid)` to read the agent's actual CWD, so the sidebar label dynamically reflects where Claude is working rather than where the shell started.
+
+## Sidebar status label for non-agent panes
+
+When a pane's `agent_label` is `None` (a plain shell, or a running process that isn't a recognized coding agent), the agent panel status row shows the actual foreground process's display name (e.g. `pwsh`, or a .NET console app's name minus `.exe`) instead of the generic `idle` state label. `agent_panel_status_label()` (`src/ui/sidebar.rs`) picks `AgentPanelEntry.foreground_display_name` when `agent_label` is `None` and it's `Some`, else falls back to the usual state label; the mobile layout (`src/ui/mobile.rs::mobile_agent_detail`) applies the same precedence. `foreground_display_name` is resolved per-entry in `agent_panel_entries_from` via `Tab::foreground_display_name_for_pane` → `TerminalRuntime::foreground_display_name` → `PaneRuntime::foreground_display_name`, which reads the same `foreground_pid` atomic used for the CWD feature below (falling back to `child_pid` when 0) and resolves it to a name with the new cross-platform `platform::process_name(pid)` (Windows: PEB `image_path_name`; Linux: `/proc/<pid>/stat` `comm`; macOS: `proc_pidinfo` `pbi_comm`), normalized by `detect::display_process_name` (strips path prefix and a case-insensitive trailing `.exe`, preserving casing). This is a live, on-demand lookup (like `cwd()`), not routed through the `AppEvent::StateChanged` channel — the channel only fires on agent-identity transitions, which would miss updates when switching between two *unrecognized* foreground processes (e.g. pwsh → an unknown console app → pwsh) with no agent ever detected.
 
 ## Windows process snapshots (lazy command lines, issue #12)
 

@@ -410,6 +410,10 @@ impl TerminalRuntime {
         self.0.foreground_cwd()
     }
 
+    pub fn foreground_display_name(&self) -> Option<String> {
+        self.0.foreground_display_name()
+    }
+
     pub fn child_pid(&self) -> Option<u32> {
         self.0.child_pid()
     }

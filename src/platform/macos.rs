@@ -852,6 +852,15 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     Some(PathBuf::from(OsStr::from_bytes(&vip_path[..nul])))
 }
 
+/// Get the display name (`comm`) of a process.
+pub fn process_name(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    let info = process_bsdinfo(pid)?;
+    comm_from_bsdinfo(&info)
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     if child_pid == 0 {
         return Vec::new();

@@ -567,4 +567,15 @@ impl Tab {
             .get(terminal_id)
             .and_then(|rt| rt.foreground_cwd())
     }
+
+    pub fn foreground_display_name_for_pane(
+        &self,
+        pane_id: PaneId,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> Option<String> {
+        let terminal_id = self.terminal_id(pane_id)?;
+        terminal_runtimes
+            .get(terminal_id)
+            .and_then(|rt| rt.foreground_display_name())
+    }
 }

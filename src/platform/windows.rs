@@ -131,6 +131,61 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
         .filter(|path| path.is_absolute())
 }
 
+/// Best-effort display name for whatever process currently appears to be the
+/// pane's foreground activity, regardless of whether it's a recognized coding
+/// agent. `select_pane_foreground_job` below only identifies *known agents*
+/// among the shell's descendants — Windows has no OS-level foreground-process
+/// primitive like Unix's `tcgetpgrp`, so an unrecognized process (e.g. `ping`,
+/// or any console app that isn't a coding agent) never becomes its
+/// `process_group_id` and the sidebar would keep showing the shell's own name.
+/// This instead picks the deepest running leaf descendant of the shell as a
+/// heuristic for "what's actually running right now," with no agent filter.
+pub fn foreground_display_process_name(shell_pid: u32) -> Option<String> {
+    let entries = snapshot_processes();
+    let leaf = foreground_leaf_descendant(shell_pid, &entries);
+    let entry = leaf.or_else(|| entries.iter().find(|entry| entry.pid == shell_pid))?;
+    Some(entry.name.clone())
+}
+
+fn foreground_leaf_descendant(
+    shell_pid: u32,
+    entries: &[WindowsProcessEntry],
+) -> Option<&WindowsProcessEntry> {
+    let descendants = descendant_entries(shell_pid, entries);
+    if descendants.is_empty() {
+        return None;
+    }
+
+    let descendant_pids: HashSet<u32> = descendants.iter().map(|entry| entry.pid).collect();
+    let parents_with_children: HashSet<u32> = descendants
+        .iter()
+        .map(|entry| entry.parent_pid)
+        .filter(|parent_pid| descendant_pids.contains(parent_pid))
+        .collect();
+
+    let parent_by_pid: HashMap<u32, u32> = entries
+        .iter()
+        .map(|entry| (entry.pid, entry.parent_pid))
+        .collect();
+    let depth_from_shell = |pid: u32| -> u32 {
+        let mut level = 0;
+        let mut current = pid;
+        while let Some(&parent) = parent_by_pid.get(&current) {
+            if parent == shell_pid || parent == current || parent == 0 {
+                break;
+            }
+            level += 1;
+            current = parent;
+        }
+        level
+    };
+
+    descendants
+        .into_iter()
+        .filter(|entry| !parents_with_children.contains(&entry.pid))
+        .max_by_key(|entry| depth_from_shell(entry.pid))
+}
+
 fn select_pane_foreground_job(
     shell_pid: u32,
     entries: &[WindowsProcessEntry],
@@ -598,6 +653,40 @@ mod tests {
         let _ = fs::remove_dir_all(&cwd);
 
         assert_eq!(observed.as_deref(), Some(cwd.as_path()));
+    }
+
+    #[test]
+    fn foreground_leaf_descendant_finds_unrecognized_child_process() {
+        let entries = vec![
+            test_entry(10, 1, "pwsh.exe", &["pwsh.exe"]),
+            test_entry(20, 10, "PING.EXE", &["PING.EXE", "-t", "localhost"]),
+        ];
+
+        let leaf = super::foreground_leaf_descendant(10, &entries).unwrap();
+
+        assert_eq!(leaf.pid, 20);
+        assert_eq!(leaf.name, "PING.EXE");
+    }
+
+    #[test]
+    fn foreground_leaf_descendant_prefers_deepest_running_leaf() {
+        let entries = vec![
+            test_entry(10, 1, "pwsh.exe", &["pwsh.exe"]),
+            test_entry(20, 10, "cmd.exe", &["cmd.exe"]),
+            test_entry(30, 20, "ping.exe", &["ping.exe", "-t", "localhost"]),
+        ];
+
+        let leaf = super::foreground_leaf_descendant(10, &entries).unwrap();
+
+        assert_eq!(leaf.pid, 30);
+        assert_eq!(leaf.name, "ping.exe");
+    }
+
+    #[test]
+    fn foreground_leaf_descendant_returns_none_without_descendants() {
+        let entries = vec![test_entry(10, 1, "pwsh.exe", &["pwsh.exe"])];
+
+        assert!(super::foreground_leaf_descendant(10, &entries).is_none());
     }
 
     #[test]

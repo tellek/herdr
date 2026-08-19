@@ -124,6 +124,14 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
+/// Get the display name (`comm`) of a process.
+pub fn process_name(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    process_pgrp_and_comm(pid).map(|(_, name)| name)
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     let Some(session_id) = process_session_id(child_pid) else {
         return Vec::new();

@@ -24,6 +24,9 @@ pub(crate) struct AgentPanelEntry {
     pub primary_label: String,
     pub primary_tab_label: Option<String>,
     pub agent_label: Option<String>,
+    /// Display name of the pane's foreground process (e.g. `pwsh`), used as a
+    /// status-line fallback label when no coding agent is detected.
+    pub foreground_display_name: Option<String>,
     pub state: AgentState,
     pub seen: bool,
     pub custom_status: Option<String>,
@@ -118,6 +121,18 @@ fn agent_panel_entries_with_runtimes(
                             .map(|cwd| derive_label_from_cwd(&cwd))
                             .unwrap_or_else(|| workspace_label.clone())
                     });
+                    let foreground_display_name = detail
+                        .agent_label
+                        .is_none()
+                        .then(|| {
+                            ws.tabs.get(detail.tab_idx).and_then(|tab| {
+                                tab.foreground_display_name_for_pane(
+                                    detail.pane_id,
+                                    terminal_runtimes,
+                                )
+                            })
+                        })
+                        .flatten();
                     AgentPanelEntry {
                         ws_idx,
                         tab_idx: detail.tab_idx,
@@ -125,6 +140,7 @@ fn agent_panel_entries_with_runtimes(
                         primary_label: pane_label,
                         primary_tab_label: multi_tab.then_some(detail.tab_label),
                         agent_label: detail.agent_label,
+                        foreground_display_name,
                         state: detail.state,
                         seen: detail.seen,
                         custom_status: detail.custom_status,
@@ -147,6 +163,22 @@ fn agent_panel_entries_with_runtimes(
     });
 
     entries
+}
+
+/// Status-line label for an agent panel entry: the running app's name (e.g.
+/// "pwsh") when no coding agent is detected, else the usual idle/working/etc
+/// state label.
+pub(super) fn agent_panel_status_label(entry: &AgentPanelEntry) -> &str {
+    if entry.agent_label.is_none() {
+        if let Some(name) = entry.foreground_display_name.as_deref() {
+            return name;
+        }
+    }
+    entry
+        .state_labels
+        .get(agent_panel_status_key(entry.state, entry.seen))
+        .map(String::as_str)
+        .unwrap_or_else(|| state_label(entry.state, entry.seen))
 }
 
 pub(super) fn agent_panel_status_key(state: AgentState, seen: bool) -> &'static str {
@@ -959,8 +991,8 @@ fn render_agent_detail(
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![Span::styled(
-            " agents",
-            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            " herdr",
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
         )])),
         Rect::new(area.x, area.y, area.width, 1),
     );
@@ -984,11 +1016,10 @@ fn render_agent_detail(
 
         let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
         let label_color = state_label_color(detail.state, detail.seen, p);
-        let label = detail
-            .state_labels
-            .get(agent_panel_status_key(detail.state, detail.seen))
-            .map(String::as_str)
-            .unwrap_or_else(|| state_label(detail.state, detail.seen));
+        // Panes with no detected coding agent show what's actually running
+        // (e.g. "pwsh") instead of a generic idle/working status.
+        let running_app_label = detail.agent_label.is_none();
+        let label = agent_panel_status_label(detail);
 
         let row_style = if is_active {
             Style::default().bg(p.surface_dim)
@@ -997,21 +1028,26 @@ fn render_agent_detail(
         };
 
         let name_style = if is_active {
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(p.accent)
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::DIM)
         };
         let tab_style = if is_active {
             Style::default().fg(p.text)
         } else {
             Style::default().fg(p.subtext0)
         };
-        let status_style = if is_active {
+        let agent_style = Style::default().fg(p.overlay0);
+        let status_style = if running_app_label {
+            agent_style
+        } else if is_active {
             Style::default().fg(label_color)
         } else {
             Style::default().fg(label_color).add_modifier(Modifier::DIM)
         };
-        let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
 
         let name_width = body.width.saturating_sub(3) as usize;
         let primary_label = truncate_text(&detail.primary_label, name_width);
@@ -1191,6 +1227,11 @@ mod tests {
             .expect("plain shell pane should be listed");
         assert_eq!(plain_shell.primary_label, "two");
         assert!(plain_shell.agent_label.is_none());
+        // No live PaneRuntime backs this test terminal, so the foreground
+        // process name can't be resolved; the status label falls back to the
+        // generic state label instead of panicking or fabricating a name.
+        assert!(plain_shell.foreground_display_name.is_none());
+        assert_eq!(agent_panel_status_label(plain_shell), "idle");
 
         let logs_entry = entries
             .iter()
@@ -1336,20 +1377,59 @@ mod tests {
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
     }
 
-    #[test]
-    fn agent_panel_entry_height_reserves_extra_row_for_tab_name() {
-        let entry_with_tab = AgentPanelEntry {
+    fn base_entry() -> AgentPanelEntry {
+        AgentPanelEntry {
             ws_idx: 0,
             tab_idx: 0,
             pane_id: crate::layout::PaneId::from_raw(1),
             primary_label: "agent-browser".into(),
             primary_tab_label: Some("test-escalation".into()),
             agent_label: Some("claude".into()),
+            foreground_display_name: None,
             state: AgentState::Idle,
             seen: true,
             custom_status: None,
             state_labels: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn agent_panel_status_label_shows_running_app_when_no_agent_detected() {
+        let entry = AgentPanelEntry {
+            agent_label: None,
+            foreground_display_name: Some("pwsh".into()),
+            ..base_entry()
         };
+        assert_eq!(agent_panel_status_label(&entry), "pwsh");
+    }
+
+    #[test]
+    fn agent_panel_status_label_falls_back_to_state_label_without_process_name() {
+        let entry = AgentPanelEntry {
+            agent_label: None,
+            foreground_display_name: None,
+            state: AgentState::Idle,
+            seen: true,
+            ..base_entry()
+        };
+        assert_eq!(agent_panel_status_label(&entry), "idle");
+    }
+
+    #[test]
+    fn agent_panel_status_label_prefers_state_label_when_agent_detected() {
+        let entry = AgentPanelEntry {
+            agent_label: Some("claude".into()),
+            foreground_display_name: Some("pwsh".into()),
+            state: AgentState::Working,
+            seen: true,
+            ..base_entry()
+        };
+        assert_eq!(agent_panel_status_label(&entry), "working");
+    }
+
+    #[test]
+    fn agent_panel_entry_height_reserves_extra_row_for_tab_name() {
+        let entry_with_tab = base_entry();
         assert_eq!(agent_panel_entry_height(&entry_with_tab), 3);
 
         let entry_without_tab = AgentPanelEntry {

@@ -2500,6 +2500,33 @@ impl PaneRuntime {
         (pid > 0).then_some(pid)
     }
 
+    /// Display name of whatever process currently owns the foreground (the
+    /// pane's shell, or a subprocess that took over, e.g. `pwsh` or a
+    /// console app's name minus `.exe`). Used as a sidebar fallback label for
+    /// panes with no detected coding agent.
+    pub fn foreground_display_name(&self) -> Option<String> {
+        let child_pid = self.child_pid.load(Ordering::Relaxed);
+        if child_pid == 0 {
+            return None;
+        }
+
+        // Windows has no OS-level foreground-process primitive (unlike Unix's
+        // tcgetpgrp-backed tracking), so `foreground_pid` here only ever holds
+        // a *recognized agent's* pid or the shell's own — it never reflects an
+        // unrecognized foreground process (e.g. `ping`). Use the dedicated
+        // leaf-descendant heuristic instead so those still show up.
+        #[cfg(windows)]
+        let name = crate::platform::foreground_display_process_name(child_pid);
+        #[cfg(not(windows))]
+        let name = {
+            let fg_pid = self.foreground_pid.load(Ordering::Acquire);
+            let pid = if fg_pid > 0 { fg_pid } else { child_pid };
+            crate::platform::process_name(pid)
+        };
+
+        name.map(|name| crate::detect::display_process_name(&name))
+    }
+
     /// Get the current working directory of the process group controlling the pane PTY.
     pub fn foreground_cwd(&self) -> Option<std::path::PathBuf> {
         #[cfg(unix)]

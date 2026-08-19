@@ -211,7 +211,7 @@ pub(super) fn agent_icon(
         (AgentState::Working, _) => (super::spinner_frame(tick), Style::default().fg(p.yellow)),
         (AgentState::Idle, false) => ("●", Style::default().fg(p.teal)),
         (AgentState::Idle, true) => ("✓", Style::default().fg(p.green)),
-        (AgentState::Unknown, _) => ("○", Style::default().fg(p.overlay0)),
+        (AgentState::Unknown, _) => ("▸", Style::default().fg(p.text)),
     }
 }
 
