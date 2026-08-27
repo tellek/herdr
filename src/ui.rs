@@ -398,7 +398,7 @@ pub fn render_with_runtime_registry(
     }
     render_panes(app, terminal_runtimes, frame, terminal_area);
     if app.view.layout != ViewLayout::Mobile {
-        render_statusline(app, frame, app.view.statusline_rect);
+        render_statusline(app, terminal_runtimes, frame, app.view.statusline_rect);
     }
 
     // Ambient notifications sit above panes, but below interactive overlays.

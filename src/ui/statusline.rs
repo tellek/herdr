@@ -117,22 +117,27 @@ fn live_status_spans(s: &LiveStatus, p: &Palette) -> Vec<Span<'static>> {
     spans
 }
 
-/// Return the CWD folder name of the focused pane for the fallback display.
-fn focused_cwd_label(app: &AppState) -> Option<String> {
+/// Return the CWD label of the focused pane for the fallback display. Uses the
+/// live (foreground process) CWD like the sidebar does, so it shows the repo the
+/// agent is actually working in rather than the shell's spawn directory.
+fn focused_cwd_label(
+    app: &AppState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+) -> Option<String> {
     let ws_idx = app.active?;
     let ws = app.workspaces.get(ws_idx)?;
     let tab = ws.tabs.get(ws.active_tab)?;
     let pane_id = tab.layout.focused();
-    let terminal_id = tab.terminal_id(pane_id)?;
-    let terminal = app.terminals.get(terminal_id)?;
-    terminal
-        .cwd
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .or_else(|| Some(terminal.cwd.display().to_string()))
+    let cwd = tab.cwd_for_pane(pane_id, &app.terminals, terminal_runtimes)?;
+    Some(crate::workspace::derive_label_from_cwd(&cwd))
 }
 
-pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(super) fn render_statusline(
+    app: &AppState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -157,7 +162,7 @@ pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
         Line::from(live_status_spans(status, p))
     } else if let Some(status) = focused_terminal(app).and_then(|t| t.effective_custom_status()) {
         Line::from(Span::styled(status, Style::default().fg(p.text)))
-    } else if let Some(cwd) = focused_cwd_label(app) {
+    } else if let Some(cwd) = focused_cwd_label(app, terminal_runtimes) {
         Line::from(vec![
             Span::styled("\u{1F4C1} ", Style::default().fg(p.overlay0)),
             Span::styled(
@@ -179,16 +184,18 @@ pub(super) fn render_statusline(app: &AppState, frame: &mut Frame, area: Rect) {
 mod tests {
     use super::*;
     use crate::app::state::AppState;
+    use crate::terminal::TerminalRuntimeRegistry;
     use crate::workspace::Workspace;
     use ratatui::{backend::TestBackend, Terminal};
 
     #[test]
     fn statusline_renders_without_panic_when_no_workspace() {
         let app = AppState::test_new();
+        let registry = TerminalRuntimeRegistry::new();
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_statusline(&app, frame, Rect::new(0, 0, 80, 1)))
+            .draw(|frame| render_statusline(&app, &registry, frame, Rect::new(0, 0, 80, 1)))
             .unwrap();
     }
 
@@ -199,10 +206,11 @@ mod tests {
         app.workspaces = vec![ws];
         app.active = Some(0);
 
+        let registry = TerminalRuntimeRegistry::new();
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_statusline(&app, frame, Rect::new(0, 0, 80, 1)))
+            .draw(|frame| render_statusline(&app, &registry, frame, Rect::new(0, 0, 80, 1)))
             .unwrap();
 
         let rendered: String = terminal
@@ -216,13 +224,57 @@ mod tests {
         assert!(!rendered.trim().is_empty());
     }
 
+    #[tokio::test]
+    async fn statusline_cwd_fallback_uses_git_repo_root_name() {
+        let temp = std::env::temp_dir().join(format!("herdr-statusline-{}", std::process::id()));
+        let repo = temp.join("my-repo");
+        let sub = repo.join("nested");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(
+            repo.join(".git").join("HEAD"),
+            "ref: refs/heads/master
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let mut app = AppState::test_new();
+        let ws = Workspace::test_new("test");
+        let tab = &ws.tabs[0];
+        let terminal_id = tab.terminal_id(tab.layout.focused()).unwrap().clone();
+        app.terminals.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalState::new(terminal_id, sub.clone()),
+        );
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+
+        let registry = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_statusline(&app, &registry, frame, Rect::new(0, 0, 80, 1)))
+            .unwrap();
+
+        let rendered: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        std::fs::remove_dir_all(&temp).ok();
+        assert!(rendered.contains("my-repo"), "rendered: {rendered}");
+    }
+
     #[test]
     fn statusline_renders_empty_area_without_panic() {
         let app = AppState::test_new();
+        let registry = TerminalRuntimeRegistry::new();
         let backend = TestBackend::new(1, 1);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_statusline(&app, frame, Rect::new(0, 0, 0, 0)))
+            .draw(|frame| render_statusline(&app, &registry, frame, Rect::new(0, 0, 0, 0)))
             .unwrap();
     }
 }

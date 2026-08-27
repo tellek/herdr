@@ -383,16 +383,22 @@ fn automatic_selection_style(
 }
 
 fn automatic_selection_bg(p: &Palette, host_theme: crate::terminal_theme::TerminalTheme) -> Color {
-    let Some(background) = host_theme.background.map(terminal_theme_to_rgb) else {
+    let Some(background) = host_theme
+        .background
+        .map(terminal_theme_to_rgb)
+        .or_else(|| color_to_rgb(selection_palette_background(p)))
+    else {
         return selection_palette_background(p);
     };
 
-    let target = if relative_luminance(background) < 0.5 {
+    // Blend toward the theme accent so the highlight stays obvious on dark
+    // backgrounds; fall back to plain lighten/darken for non-rgb accents.
+    let target = color_to_rgb(p.accent).unwrap_or(if relative_luminance(background) < 0.5 {
         (255, 255, 255)
     } else {
         (0, 0, 0)
-    };
-    let selected = mix_rgb(background, target, 0.28);
+    });
+    let selected = mix_rgb(background, target, 0.55);
     Color::Rgb(selected.0, selected.1, selected.2)
 }
 
