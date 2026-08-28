@@ -107,6 +107,12 @@ fn live_status_spans(s: &LiveStatus, p: &Palette) -> Vec<Span<'static>> {
         Style::default().fg(p.red),
     ));
 
+    // | brain memories_used_total (only if the cog.json sidecar exists)
+    if let Some(memories) = s.memories_used_total {
+        spans.push(Span::styled(" | ", dim));
+        spans.push(Span::styled(format!("\u{1F4BE} +{memories}"), dim));
+    }
+
     // | folder dir +N
     spans.push(Span::styled(" | ", dim));
     spans.push(Span::styled(format!("\u{1F4C1} {}", s.current_dir), dim));

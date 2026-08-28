@@ -30,6 +30,9 @@ pub struct LiveStatus {
     pub exceeds_200k: bool,
     /// The Claude session id from the payload, if present.
     pub session_id: Option<String>,
+    /// `memories_used_total` from the session's `<session_id>_cog.json`
+    /// sidecar file, if that file exists for this session.
+    pub memories_used_total: Option<u64>,
 }
 
 /// Parse a Claude statusLine payload (JSON, which is also valid YAML — the writer
@@ -111,7 +114,16 @@ fn parse_live_status(payload: &str) -> Option<LiveStatus> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
+        memories_used_total: None,
     })
+}
+
+/// Read `memories_used_total` from `<dir>/<session_id>_cog.json`, if that file exists.
+fn read_memories_used_total(dir: &std::path::Path, session_id: &str) -> Option<u64> {
+    let payload = std::fs::read_to_string(dir.join(format!("{session_id}_cog.json"))).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&payload).ok()?;
+    v.get("memories_used_total")
+        .and_then(serde_json::Value::as_u64)
 }
 
 /// Locate `<home>/.claude/projects/*/<session_id>.yaml` and parse its payload.
@@ -124,7 +136,9 @@ fn read_live_status_for_session(home: &std::path::Path, session_id: &str) -> Opt
         }
         let candidate = entry.path().join(&file);
         if let Ok(payload) = std::fs::read_to_string(&candidate) {
-            return parse_live_status(&payload);
+            let mut status = parse_live_status(&payload)?;
+            status.memories_used_total = read_memories_used_total(&entry.path(), session_id);
+            return Some(status);
         }
     }
     None
@@ -386,7 +400,26 @@ mod tests {
 
         let s = read_live_status_for_session(&home, "abc").unwrap();
         assert_eq!(s.model, "Opus 4.8");
+        assert_eq!(s.memories_used_total, None);
         assert!(read_live_status_for_session(&home, "missing").is_none());
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn reads_memories_used_total_when_cog_json_present() {
+        let home = std::env::temp_dir().join(format!(
+            "herdr-live-status-cog-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let proj = home.join(".claude").join("projects").join("C--git-herdr");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("abc.yaml"), SAMPLE).unwrap();
+        std::fs::write(proj.join("abc_cog.json"), r#"{"memories_used_total": 7}"#).unwrap();
+
+        let s = read_live_status_for_session(&home, "abc").unwrap();
+        assert_eq!(s.memories_used_total, Some(7));
 
         let _ = std::fs::remove_dir_all(&home);
     }
