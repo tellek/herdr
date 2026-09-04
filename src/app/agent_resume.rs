@@ -230,7 +230,6 @@ impl App {
             return false;
         };
 
-        let cwd_for_command = cwd.clone();
         let runtime = match crate::terminal::TerminalRuntime::spawn(
             pane_id,
             rows,
@@ -260,16 +259,11 @@ impl App {
             }
         };
 
-        // The spawn CWD alone is not enough: a shell startup file (or the
-        // PowerShell wrapper herdr injects) can move the shell somewhere else
-        // before it reads our input, and the resumed agent inherits whatever
-        // directory it lands in. Change directory explicitly first so the agent
-        // resumes in the folder the pane was left in.
-        let shell = crate::pane::pane_shell(&self.state.default_shell);
-        let mut input = match shell_cd_prefix(&cwd_for_command, &shell) {
-            Some(prefix) => format!("{prefix}{resume_command}"),
-            None => resume_command,
-        };
+        // Only the resume command is typed. The shell is already spawned in the
+        // right directory, and prefixing a `cd` here races with shell startup:
+        // input sent before the shell finishes initializing can be partly
+        // swallowed, which ran the agent before the directory change landed.
+        let mut input = resume_command;
         input.push('\r');
         if let Err(err) = runtime.try_send_bytes(Bytes::from(input)) {
             tracing::warn!(
@@ -334,28 +328,6 @@ fn shell_command_from_argv(argv: &[String]) -> Option<String> {
         command.push_str(&shell_quote(part));
     }
     Some(command)
-}
-
-/// Build a `cd`-then-run prefix for `dir`, in the syntax of `shell`.
-///
-/// Returns `None` when the directory cannot be expressed as a shell word (a
-/// non-UTF-8 or empty path), in which case the caller runs the command alone.
-fn shell_cd_prefix(dir: &std::path::Path, shell: &str) -> Option<String> {
-    let dir = dir.to_str().filter(|dir| !dir.is_empty())?;
-    if crate::pane::is_powershell_shell(shell) {
-        // PowerShell gained `&&` only in 7.0, and `-LiteralPath` keeps glob
-        // characters in the path from being expanded.
-        Some(format!(
-            "Set-Location -LiteralPath {}; ",
-            powershell_quote(dir)
-        ))
-    } else {
-        Some(format!("cd {} && ", shell_quote(dir)))
-    }
-}
-
-fn powershell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn shell_quote(value: &str) -> String {
@@ -807,36 +779,6 @@ mod tests {
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
-    }
-
-    #[test]
-    fn shell_cd_prefix_uses_posix_syntax_for_posix_shells() {
-        assert_eq!(
-            shell_cd_prefix(std::path::Path::new("/home/me/proj"), "/bin/zsh").as_deref(),
-            Some("cd /home/me/proj && ")
-        );
-        assert_eq!(
-            shell_cd_prefix(std::path::Path::new("/home/me/my proj"), "bash").as_deref(),
-            Some("cd '/home/me/my proj' && ")
-        );
-    }
-
-    #[test]
-    fn shell_cd_prefix_uses_powershell_syntax_for_powershell_shells() {
-        assert_eq!(
-            shell_cd_prefix(std::path::Path::new(r"C:\git\herdr"), "powershell.exe").as_deref(),
-            Some(r"Set-Location -LiteralPath 'C:\git\herdr'; ")
-        );
-        assert_eq!(
-            shell_cd_prefix(std::path::Path::new(r"C:\o'brien"), "pwsh").as_deref(),
-            Some(r"Set-Location -LiteralPath 'C:\o''brien'; ")
-        );
-    }
-
-    #[test]
-    fn shell_cd_prefix_skips_empty_directories() {
-        assert_eq!(shell_cd_prefix(std::path::Path::new(""), "bash"), None);
-        assert_eq!(shell_cd_prefix(std::path::Path::new(""), "pwsh"), None);
     }
 
     #[test]
