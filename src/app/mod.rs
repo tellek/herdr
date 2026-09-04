@@ -92,6 +92,18 @@ impl PaneClickState {
     }
 }
 
+/// How long to wait after a restored pane's `cd` before typing its agent
+/// resume command, so the directory change has taken effect first.
+pub(crate) const AGENT_RESUME_COMMAND_DELAY: Duration = Duration::from_millis(300);
+
+/// An input line queued for a pane, to be typed once `due` has passed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredPaneInput {
+    pub(crate) terminal_id: crate::terminal::TerminalId,
+    pub(crate) due: Instant,
+    pub(crate) line: String,
+}
+
 pub struct App {
     pub state: AppState,
     pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
@@ -122,6 +134,9 @@ pub struct App {
     pub(crate) update_manifest_check_enabled: bool,
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
+    /// Input lines to type into a pane once its shell has had time to come
+    /// up. Used to sequence a restored pane's `cd` ahead of its agent resume.
+    pub(crate) deferred_pane_inputs: Vec<DeferredPaneInput>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
@@ -692,6 +707,7 @@ impl App {
             update_manifest_check_enabled: config.update.manifest_check,
             agent_metadata_deadline: None,
             pending_agent_resume_deadline: None,
+            deferred_pane_inputs: Vec::new(),
             session_save_deadline: None,
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
@@ -975,7 +991,8 @@ impl App {
                     )?;
                 }
                 self.sync_pending_agent_resume_deadline(now);
-                if self.start_pending_agent_resumes(self.pending_agent_resume_due(now)) {
+                let started = self.start_pending_agent_resumes(self.pending_agent_resume_due(now));
+                if started | self.flush_due_pane_inputs(now) {
                     self.render_dirty.store(true, Ordering::Release);
                     self.render_notify.notify_one();
                 }

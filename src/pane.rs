@@ -1213,7 +1213,7 @@ fn pane_shell_command_builder(shell_config: PaneShellConfig<'_>) -> io::Result<C
 
 #[cfg(windows)]
 fn apply_windows_powershell_cwd_reporting(cmd: &mut CommandBuilder, shell: &str) {
-    if !is_windows_powershell_shell(shell) {
+    if !is_powershell_shell(shell) {
         return;
     }
     cmd.arg("-NoExit");
@@ -1226,8 +1226,7 @@ fn apply_windows_powershell_cwd_reporting(cmd: &mut CommandBuilder, shell: &str)
     let _ = (cmd, shell);
 }
 
-#[cfg(windows)]
-fn is_windows_powershell_shell(shell: &str) -> bool {
+fn is_powershell_shell(shell: &str) -> bool {
     let name = Path::new(shell)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
@@ -1237,6 +1236,42 @@ fn is_windows_powershell_shell(shell: &str) -> bool {
         name.as_str(),
         "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
     )
+}
+
+/// A command line that changes the shell's directory to `dir`, in the syntax of
+/// the shell `shell_config` selects.
+///
+/// Returns `None` for a directory that cannot be written as a shell word (a
+/// non-UTF-8 or empty path).
+pub(crate) fn shell_cd_command(dir: &Path, shell_config: PaneShellConfig<'_>) -> Option<String> {
+    let dir = dir.to_str().filter(|dir| !dir.is_empty())?;
+    let shell = pane_shell(shell_config.default_shell);
+    Some(if is_powershell_shell(&shell) {
+        // `-LiteralPath` keeps glob characters in the path from being expanded.
+        format!("Set-Location -LiteralPath {}", powershell_shell_quote(dir))
+    } else {
+        format!("cd {}", posix_shell_quote(dir))
+    })
+}
+
+pub(crate) fn powershell_shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+pub(crate) fn posix_shell_quote(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    if value.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'_' | b'-' | b'.' | b'/' | b':' | b'@' | b'%' | b'+' | b'='
+            )
+    }) {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(windows)]

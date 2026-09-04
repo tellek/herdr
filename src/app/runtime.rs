@@ -301,6 +301,7 @@ impl App {
             self.sync_pending_agent_resume_deadline(now);
             changed |= self.start_pending_agent_resumes(self.pending_agent_resume_due(now));
         }
+        changed |= self.flush_due_pane_inputs(now);
         self.sync_animation_timer(now);
         changed
     }
@@ -563,6 +564,10 @@ impl App {
             self.next_live_status_poll,
             self.agent_metadata_deadline,
             self.pending_agent_resume_deadline,
+            self.deferred_pane_inputs
+                .iter()
+                .map(|input| input.due)
+                .min(),
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
             self.selection_highlight_clear_deadline,

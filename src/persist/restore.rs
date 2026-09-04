@@ -638,6 +638,25 @@ fn restore_tab(
 
         match runtime_result {
             Ok(runtime) => {
+                // The spawn CWD is not reliable on its own (a shell can start
+                // elsewhere, and on Windows the console wrapper runs first), so
+                // put the shell in the pane's saved directory explicitly.
+                if !was_imported {
+                    if let Some(cd_command) =
+                        crate::pane::shell_cd_command(&cwd, runtime_context.shell_config)
+                    {
+                        let mut cd_input = cd_command;
+                        cd_input.push('\r');
+                        if let Err(err) = runtime.try_send_bytes(bytes::Bytes::from(cd_input)) {
+                            warn!(
+                                pane_id = id.raw(),
+                                cwd = %cwd.display(),
+                                err = %err,
+                                "failed to restore pane cwd via shell input"
+                            );
+                        }
+                    }
+                }
                 let terminal_id = TerminalId::alloc();
                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
                 if was_imported {

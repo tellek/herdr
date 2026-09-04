@@ -230,6 +230,7 @@ impl App {
             return false;
         };
 
+        let cwd_for_command = cwd.clone();
         let runtime = match crate::terminal::TerminalRuntime::spawn(
             pane_id,
             rows,
@@ -259,22 +260,46 @@ impl App {
             }
         };
 
-        // Only the resume command is typed. The shell is already spawned in the
-        // right directory, and prefixing a `cd` here races with shell startup:
-        // input sent before the shell finishes initializing can be partly
-        // swallowed, which ran the agent before the directory change landed.
-        let mut input = resume_command;
-        input.push('\r');
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(input)) {
-            tracing::warn!(
-                pane = pane_id.raw(),
-                terminal = %terminal_id,
-                agent = %plan.agent,
-                err = %err,
-                "failed to send deferred agent resume command to shell"
-            );
-            runtime.shutdown();
-            return false;
+        // Put the shell in the pane's directory before the agent starts. The
+        // spawn CWD is not reliable on its own, and the two cannot share a line:
+        // the resume has to wait for the directory change to take effect, so it
+        // is queued as a separate line a short delay later.
+        let shell_config =
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
+        let cd_command = crate::pane::shell_cd_command(&cwd_for_command, shell_config);
+        if let Some(cd_command) = cd_command.clone() {
+            let mut cd_input = cd_command;
+            cd_input.push('\r');
+            if let Err(err) = runtime.try_send_bytes(Bytes::from(cd_input)) {
+                tracing::warn!(
+                    pane = pane_id.raw(),
+                    terminal = %terminal_id,
+                    err = %err,
+                    "failed to send directory change to resumed pane shell"
+                );
+            }
+        }
+
+        if cd_command.is_some() {
+            self.deferred_pane_inputs.push(super::DeferredPaneInput {
+                terminal_id: terminal_id.clone(),
+                due: std::time::Instant::now() + super::AGENT_RESUME_COMMAND_DELAY,
+                line: resume_command,
+            });
+        } else {
+            let mut input = resume_command;
+            input.push('\r');
+            if let Err(err) = runtime.try_send_bytes(Bytes::from(input)) {
+                tracing::warn!(
+                    pane = pane_id.raw(),
+                    terminal = %terminal_id,
+                    agent = %plan.agent,
+                    err = %err,
+                    "failed to send deferred agent resume command to shell"
+                );
+                runtime.shutdown();
+                return false;
+            }
         }
 
         self.terminal_runtimes.insert(terminal_id.clone(), runtime);
@@ -283,6 +308,44 @@ impl App {
             terminal.respawn_shell_on_exit = false;
         }
         true
+    }
+}
+
+impl App {
+    /// Types any queued pane input whose delay has elapsed.
+    pub(crate) fn flush_due_pane_inputs(&mut self, now: std::time::Instant) -> bool {
+        if self
+            .deferred_pane_inputs
+            .iter()
+            .all(|input| input.due > now)
+        {
+            return false;
+        }
+
+        let mut sent = false;
+        let queued = std::mem::take(&mut self.deferred_pane_inputs);
+        for input in queued {
+            if input.due > now {
+                self.deferred_pane_inputs.push(input);
+                continue;
+            }
+            let Some(runtime) = self.terminal_runtimes.get(&input.terminal_id) else {
+                // The pane went away before its input was due; drop it.
+                continue;
+            };
+            let mut line = input.line;
+            line.push('\r');
+            if let Err(err) = runtime.try_send_bytes(Bytes::from(line)) {
+                tracing::warn!(
+                    terminal = %input.terminal_id,
+                    err = %err,
+                    "failed to send deferred pane input"
+                );
+                continue;
+            }
+            sent = true;
+        }
+        sent
     }
 }
 
@@ -321,36 +384,19 @@ fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
 
 fn shell_command_from_argv(argv: &[String]) -> Option<String> {
     let mut parts = argv.iter();
-    let first = shell_quote(parts.next()?);
+    let first = crate::pane::posix_shell_quote(parts.next()?);
     let mut command = first;
     for part in parts {
         command.push(' ');
-        command.push_str(&shell_quote(part));
+        command.push_str(&crate::pane::posix_shell_quote(part));
     }
     Some(command)
-}
-
-fn shell_quote(value: &str) -> String {
-    if value.is_empty() {
-        return "''".to_string();
-    }
-    if value.bytes().all(|byte| {
-        byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'_' | b'-' | b'.' | b'/' | b':' | b'@' | b'%' | b'+' | b'='
-            )
-    }) {
-        return value.to_string();
-    }
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         App::new(
@@ -779,6 +825,75 @@ mod tests {
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
+    }
+
+    #[test]
+    fn shell_cd_command_uses_posix_syntax_for_posix_shells() {
+        let config =
+            crate::pane::PaneShellConfig::new("/bin/zsh", crate::config::ShellModeConfig::NonLogin);
+        assert_eq!(
+            crate::pane::shell_cd_command(std::path::Path::new("/home/me/proj"), config).as_deref(),
+            Some("cd /home/me/proj")
+        );
+
+        let config =
+            crate::pane::PaneShellConfig::new("bash", crate::config::ShellModeConfig::NonLogin);
+        assert_eq!(
+            crate::pane::shell_cd_command(std::path::Path::new("/home/me/my proj"), config)
+                .as_deref(),
+            Some("cd '/home/me/my proj'")
+        );
+    }
+
+    #[test]
+    fn shell_cd_command_uses_powershell_syntax_for_powershell_shells() {
+        let config = crate::pane::PaneShellConfig::new(
+            "powershell.exe",
+            crate::config::ShellModeConfig::NonLogin,
+        );
+        assert_eq!(
+            crate::pane::shell_cd_command(std::path::Path::new(r"C:\git\herdr"), config).as_deref(),
+            Some(r"Set-Location -LiteralPath 'C:\git\herdr'")
+        );
+
+        let config =
+            crate::pane::PaneShellConfig::new("pwsh", crate::config::ShellModeConfig::NonLogin);
+        assert_eq!(
+            crate::pane::shell_cd_command(std::path::Path::new(r"C:\o'brien"), config).as_deref(),
+            Some(r"Set-Location -LiteralPath 'C:\o''brien'")
+        );
+    }
+
+    #[test]
+    fn shell_cd_command_skips_empty_directories() {
+        let config =
+            crate::pane::PaneShellConfig::new("bash", crate::config::ShellModeConfig::NonLogin);
+        assert_eq!(
+            crate::pane::shell_cd_command(std::path::Path::new(""), config),
+            None
+        );
+    }
+
+    #[test]
+    fn flush_due_pane_inputs_only_sends_inputs_whose_delay_elapsed() {
+        let mut app = test_app();
+        let now = std::time::Instant::now();
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        app.deferred_pane_inputs
+            .push(crate::app::DeferredPaneInput {
+                terminal_id: terminal_id.clone(),
+                due: now + std::time::Duration::from_millis(300),
+                line: "claude --resume abc".into(),
+            });
+
+        // Not due yet: the queue is untouched.
+        assert!(!app.flush_due_pane_inputs(now));
+        assert_eq!(app.deferred_pane_inputs.len(), 1);
+
+        // Due, but the pane has no runtime, so the entry is dropped rather than
+        // retried forever.
+        assert!(!app.flush_due_pane_inputs(now + std::time::Duration::from_millis(301)));
+        assert!(app.deferred_pane_inputs.is_empty());
     }
 
     #[test]

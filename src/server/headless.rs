@@ -746,10 +746,10 @@ impl HeadlessServer {
         }
         let now = Instant::now();
         self.app.sync_pending_agent_resume_deadline(now);
-        if self
+        let started = self
             .app
-            .start_pending_agent_resumes(self.app.pending_agent_resume_due(now))
-        {
+            .start_pending_agent_resumes(self.app.pending_agent_resume_due(now));
+        if started | self.app.flush_due_pane_inputs(now) {
             for client in self.clients.values_mut() {
                 client.request_full_redraw();
             }
@@ -3464,6 +3464,7 @@ impl HeadlessServer {
                 .app
                 .start_pending_agent_resumes(self.app.pending_agent_resume_due(now));
         }
+        changed |= self.app.flush_due_pane_inputs(now);
         self.app.sync_headless_animation_timer(now);
         changed
     }
