@@ -23,7 +23,7 @@ use self::git::git_ahead_behind;
 pub(crate) use self::tab::MovedPane;
 pub use self::{
     git::{
-        derive_label_from_cwd, git_branch, git_repo_root, git_space_metadata, git_status_cache_key,
+        derive_label_from_cwd, git_branch, git_space_metadata, git_status_cache_key,
         GitSpaceMetadata, GitStatusCacheEntry,
     },
     tab::{NewPane, Tab},

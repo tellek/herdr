@@ -1086,7 +1086,7 @@ fn truncate_handoff_history(history: String, max_bytes: usize) -> String {
     history[start..].to_owned()
 }
 
-fn pane_shell(configured_shell: &str) -> String {
+pub(crate) fn pane_shell(configured_shell: &str) -> String {
     pane_shell_from(configured_shell, std::env::var("SHELL").ok())
 }
 
@@ -1213,7 +1213,7 @@ fn pane_shell_command_builder(shell_config: PaneShellConfig<'_>) -> io::Result<C
 
 #[cfg(windows)]
 fn apply_windows_powershell_cwd_reporting(cmd: &mut CommandBuilder, shell: &str) {
-    if !is_windows_powershell_shell(shell) {
+    if !is_powershell_shell(shell) {
         return;
     }
     cmd.arg("-NoExit");
@@ -1226,8 +1226,7 @@ fn apply_windows_powershell_cwd_reporting(cmd: &mut CommandBuilder, shell: &str)
     let _ = (cmd, shell);
 }
 
-#[cfg(windows)]
-fn is_windows_powershell_shell(shell: &str) -> bool {
+pub(crate) fn is_powershell_shell(shell: &str) -> bool {
     let name = Path::new(shell)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
