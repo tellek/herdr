@@ -207,6 +207,10 @@ pub(super) fn render_global_launcher_menu(app: &AppState, frame: &mut Frame) {
         };
         let badge_style = if selected {
             selected_style
+        } else if *item == "headroom" {
+            Style::default()
+                .fg(app.palette.peach)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
                 .fg(app.palette.accent)

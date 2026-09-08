@@ -897,10 +897,15 @@ impl SettingsSection {
 pub(crate) enum ExperimentSetting {
     PaneHistory,
     SwitchAsciiInputSourceInPrefix,
+    AutoStartHeadroomProxy,
 }
 
 impl ExperimentSetting {
-    pub(crate) const ALL: [Self; 2] = [Self::PaneHistory, Self::SwitchAsciiInputSourceInPrefix];
+    pub(crate) const ALL: [Self; 3] = [
+        Self::PaneHistory,
+        Self::SwitchAsciiInputSourceInPrefix,
+        Self::AutoStartHeadroomProxy,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -908,6 +913,7 @@ impl ExperimentSetting {
             Self::SwitchAsciiInputSourceInPrefix => {
                 "switch to ascii input source in prefix (macOS)"
             }
+            Self::AutoStartHeadroomProxy => "auto start headroom proxy",
         }
     }
 
@@ -917,6 +923,7 @@ impl ExperimentSetting {
             Self::SwitchAsciiInputSourceInPrefix => {
                 state.switch_ascii_input_source_in_prefix_enabled()
             }
+            Self::AutoStartHeadroomProxy => state.headroom_proxy_auto_start_enabled(),
         }
     }
 }
@@ -1308,6 +1315,14 @@ pub struct AppState {
     pub request_submit_worktree_open: bool,
     pub request_submit_worktree_remove: bool,
     pub request_reload_config: bool,
+    /// Set when the global menu's "headroom" item was activated; the outer
+    /// App/event loop starts or stops the `headroom proxy` background process.
+    pub request_toggle_headroom_proxy: bool,
+    /// Whether the `headroom proxy` background process is currently running.
+    pub headroom_proxy_running: bool,
+    /// `[experimental] auto_start_headroom_proxy` — start the `headroom proxy`
+    /// background process automatically when herdr starts.
+    pub headroom_proxy_auto_start: bool,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
@@ -1475,6 +1490,10 @@ impl AppState {
         self.switch_ascii_input_source_in_prefix
     }
 
+    pub fn headroom_proxy_auto_start_enabled(&self) -> bool {
+        self.headroom_proxy_auto_start
+    }
+
     pub(crate) fn pane_exposes_host_cursor(
         &self,
         _ws_idx: usize,
@@ -1500,6 +1519,7 @@ impl AppState {
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
         (item == "update ready" && self.update_available.is_some())
             || (item == "settings" && self.integration_updates_available())
+            || (item == "headroom" && self.headroom_proxy_running)
     }
 
     pub(crate) fn settings_section_has_badge(&self, section: SettingsSection) -> bool {
@@ -1658,6 +1678,9 @@ impl AppState {
             request_submit_worktree_open: false,
             request_submit_worktree_remove: false,
             request_reload_config: false,
+            request_toggle_headroom_proxy: false,
+            headroom_proxy_running: false,
+            headroom_proxy_auto_start: false,
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,

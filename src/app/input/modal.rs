@@ -74,6 +74,7 @@ pub(crate) enum GlobalMenuAction {
     Keybinds,
     ReloadConfig,
     Settings,
+    Headroom,
 }
 
 pub(super) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
@@ -81,6 +82,7 @@ pub(super) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         GlobalMenuAction::Settings,
         GlobalMenuAction::Keybinds,
         GlobalMenuAction::ReloadConfig,
+        GlobalMenuAction::Headroom,
     ];
     if state.update_available.is_some() || state.latest_release_notes_available {
         actions.push(GlobalMenuAction::WhatsNew);
@@ -134,6 +136,10 @@ pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuA
             leave_modal(state);
         }
         GlobalMenuAction::Settings => super::settings::open_settings(state),
+        GlobalMenuAction::Headroom => {
+            state.request_toggle_headroom_proxy = true;
+            leave_modal(state);
+        }
     }
 }
 
@@ -1030,6 +1036,28 @@ mod tests {
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn global_menu_headroom_requests_toggle_and_closes_menu() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::GlobalMenu;
+
+        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::Headroom));
+
+        apply_global_menu_action(&mut state, GlobalMenuAction::Headroom);
+
+        assert!(state.request_toggle_headroom_proxy);
+        assert_ne!(state.mode, Mode::GlobalMenu);
+    }
+
+    #[test]
+    fn global_menu_headroom_badge_reflects_running_state() {
+        let mut state = state_with_workspaces(&["test"]);
+        assert!(!state.global_menu_item_has_badge("headroom"));
+
+        state.headroom_proxy_running = true;
+        assert!(state.global_menu_item_has_badge("headroom"));
     }
 
     #[test]

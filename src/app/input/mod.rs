@@ -274,6 +274,9 @@ impl App {
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }
+                    SettingsAction::SaveHeadroomProxyAutoStart(enabled) => {
+                        self.save_headroom_proxy_auto_start(enabled)
+                    }
                     SettingsAction::InstallRecommendedIntegrations => {
                         self.install_recommended_integrations()
                     }

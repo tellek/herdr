@@ -527,6 +527,9 @@ pub struct ExperimentalConfig {
     /// source when prefix mode exits. macOS only; a no-op elsewhere and a
     /// best-effort no-op if the switch fails. Default: false.
     pub switch_ascii_input_source_in_prefix: bool,
+    /// Automatically start the `headroom proxy` background process when
+    /// herdr starts. Default: false.
+    pub auto_start_headroom_proxy: bool,
 }
 
 impl Default for KeysConfig {
@@ -1207,12 +1210,19 @@ allow_nested = true
 kitty_graphics = true
 pane_history = true
 switch_ascii_input_source_in_prefix = true
+auto_start_headroom_proxy = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.experimental.allow_nested);
         assert!(config.experimental.kitty_graphics);
         assert!(config.experimental.pane_history);
         assert!(config.experimental.switch_ascii_input_source_in_prefix);
+        assert!(config.experimental.auto_start_headroom_proxy);
+    }
+
+    #[test]
+    fn auto_start_headroom_proxy_defaults_to_false() {
+        assert!(!Config::default().experimental.auto_start_headroom_proxy);
     }
 
     #[test]

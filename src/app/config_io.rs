@@ -112,4 +112,17 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+
+    pub(super) fn save_headroom_proxy_auto_start(&mut self, enabled: bool) {
+        if self.update_config_file("auto start headroom proxy", |content| {
+            crate::config::upsert_section_bool(
+                content,
+                "experimental",
+                "auto_start_headroom_proxy",
+                enabled,
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
 }

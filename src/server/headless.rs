@@ -589,6 +589,13 @@ impl HeadlessServer {
                 crate::render_prof::event("full_render_cause.config_reload");
             }
 
+            if self.app.state.request_toggle_headroom_proxy {
+                self.app.state.request_toggle_headroom_proxy = false;
+                self.app.toggle_headroom_proxy();
+                needs_render = true;
+            }
+            self.app.poll_headroom_proxy();
+
             if latest_app_client(&self.clients).is_some() && self.app.ensure_default_workspace() {
                 needs_render = true;
                 needs_full_render = true;

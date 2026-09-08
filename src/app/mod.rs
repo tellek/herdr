@@ -11,6 +11,7 @@ mod api;
 mod api_helpers;
 mod config_io;
 mod creation;
+mod headroom;
 mod ids;
 mod input;
 pub(crate) mod live_status;
@@ -141,6 +142,9 @@ pub struct App {
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) persist_pane_history: bool,
+    /// The running `headroom proxy` child process, if any. Not persisted;
+    /// see `AppState::headroom_proxy_running` for the UI-visible flag.
+    pub(crate) headroom_proxy_child: Option<std::process::Child>,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) suppressed_repeat_keys:
         HashSet<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
@@ -518,6 +522,9 @@ impl App {
             request_submit_worktree_open: false,
             request_submit_worktree_remove: false,
             request_reload_config: false,
+            request_toggle_headroom_proxy: false,
+            headroom_proxy_running: false,
+            headroom_proxy_auto_start: config.experimental.auto_start_headroom_proxy,
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,
@@ -681,7 +688,7 @@ impl App {
                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
         });
 
-        Self {
+        let mut app = Self {
             config_diagnostic_deadline: None,
             toast_deadline: None,
             copy_feedback_deadline: None,
@@ -712,6 +719,7 @@ impl App {
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
+            headroom_proxy_child: None,
             last_render_at: None,
             suppressed_repeat_keys: HashSet::new(),
             api_rx,
@@ -727,7 +735,11 @@ impl App {
             local_terminal_notifications: true,
             config_reloaded_from_disk: false,
             prefix_input_source: Box::new(crate::platform::RealPrefixInputSource::default()),
+        };
+        if app.state.headroom_proxy_auto_start_enabled() {
+            app.start_headroom_proxy_if_needed();
         }
+        app
     }
 
     #[cfg(unix)]
@@ -939,6 +951,13 @@ impl App {
                 self.reload_config();
                 needs_render = true;
             }
+
+            if self.state.request_toggle_headroom_proxy {
+                self.state.request_toggle_headroom_proxy = false;
+                self.toggle_headroom_proxy();
+                needs_render = true;
+            }
+            self.poll_headroom_proxy();
 
             if self.ensure_default_workspace() {
                 needs_render = true;
@@ -1357,6 +1376,7 @@ impl App {
                 config.experimental.cjk_ime_cursor_shape.to_decscusr();
             self.state.switch_ascii_input_source_in_prefix =
                 config.experimental.switch_ascii_input_source_in_prefix;
+            self.state.headroom_proxy_auto_start = config.experimental.auto_start_headroom_proxy;
             self.persist_pane_history = config.experimental.pane_history;
             self.state.pane_history_persistence = config.experimental.pane_history;
             if !self.persist_pane_history {

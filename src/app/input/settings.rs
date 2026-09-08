@@ -19,6 +19,7 @@ pub(super) enum SettingsAction {
     SaveAgentBorderLabels(bool),
     SavePaneHistory(bool),
     SaveSwitchAsciiInputSourceInPrefix(bool),
+    SaveHeadroomProxyAutoStart(bool),
     InstallRecommendedIntegrations,
 }
 
@@ -31,6 +32,11 @@ fn experiment_toggle_action(state: &AppState, idx: usize) -> Option<SettingsActi
         ExperimentSetting::SwitchAsciiInputSourceInPrefix => {
             Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
                 !ExperimentSetting::SwitchAsciiInputSourceInPrefix.enabled(state),
+            ))
+        }
+        ExperimentSetting::AutoStartHeadroomProxy => {
+            Some(SettingsAction::SaveHeadroomProxyAutoStart(
+                !ExperimentSetting::AutoStartHeadroomProxy.enabled(state),
             ))
         }
     }
@@ -52,6 +58,9 @@ impl App {
                 }
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
+                }
+                SettingsAction::SaveHeadroomProxyAutoStart(enabled) => {
+                    self.save_headroom_proxy_auto_start(enabled)
                 }
                 SettingsAction::InstallRecommendedIntegrations => {
                     self.install_recommended_integrations()
@@ -577,6 +586,25 @@ mod tests {
         assert_eq!(
             action,
             Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
+        );
+        assert_eq!(state.mode, Mode::Settings);
+    }
+
+    #[test]
+    fn settings_experiments_toggles_headroom_proxy_auto_start() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.headroom_proxy_auto_start = false;
+        open_settings_at(&mut state, SettingsSection::Experiments);
+        state.settings.list.selected = 2;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveHeadroomProxyAutoStart(true))
         );
         assert_eq!(state.mode, Mode::Settings);
     }

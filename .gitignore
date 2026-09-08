@@ -21,3 +21,6 @@ __pycache__/
 
 /target-test
 /target
+
+/.claude/.headroom_wrap_*
+/.serena
