@@ -103,6 +103,8 @@ The global menu (`src/app/input/modal.rs::global_menu_actions`, ordered labels i
 
 An experimental setting, "auto start headroom proxy" (`ExperimentSetting::AutoStartHeadroomProxy`, `[experimental] auto_start_headroom_proxy` in config, default `false`), starts the proxy automatically via `App::start_headroom_proxy_if_needed()` when herdr launches, following the same `ExperimentalConfig` → `AppState` field → `SettingsAction` → `config_io.rs` save pattern as the other Settings → Experiments toggles.
 
+Because `AppState`/`App` is server-authoritative and the badge only tracked `App::headroom_proxy_child` (a handle only the spawner holds), the badge previously missed an already-running proxy the current `App` instance didn't spawn itself (e.g. left over from a prior herdr process). `App::poll_headroom_proxy()` now also periodically (`HEADROOM_PROXY_PROBE_INTERVAL`, 3s) probes `127.0.0.1:8787` with a short `TcpStream::connect_timeout` (`headroom_proxy_port_open`/`port_open` in `src/app/headroom.rs`) whenever it doesn't hold a child handle, so `headroom_proxy_running` reflects reality even for proxies herdr didn't start. If `spawn_headroom_proxy()` fails with `ErrorKind::NotFound` (the `headroom` binary isn't on `PATH`), `toggle_headroom_proxy` shows a 10s diagnostic pointing at the GitHub repo (`https://github.com/headroomlabs-ai/headroom`) instead of a generic error.
+
 `build-release.bat` (repo root) builds the release binary with `LIBGHOSTTY_VT_PREBUILT=true` set, for use when a running herdr instance would otherwise lock `target\release\herdr.exe`.
 
 ## Claude session resume CWD

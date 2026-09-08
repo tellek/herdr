@@ -145,6 +145,9 @@ pub struct App {
     /// The running `headroom proxy` child process, if any. Not persisted;
     /// see `AppState::headroom_proxy_running` for the UI-visible flag.
     pub(crate) headroom_proxy_child: Option<std::process::Child>,
+    /// Next time `poll_headroom_proxy` may probe the proxy's port to detect
+    /// an already-running instance we didn't spawn ourselves.
+    pub(crate) next_headroom_proxy_probe: Instant,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) suppressed_repeat_keys:
         HashSet<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
@@ -720,6 +723,7 @@ impl App {
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
             headroom_proxy_child: None,
+            next_headroom_proxy_probe: Instant::now(),
             last_render_at: None,
             suppressed_repeat_keys: HashSet::new(),
             api_rx,
